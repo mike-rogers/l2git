@@ -93,7 +93,7 @@
                                       (re-find #"service=([a-z-]+)")) [])
                          1)]
         (if (#{"git-upload-pack" "git-receive-pack"} service)
-          (git-http/info-refs repo service)
+          (git-http/info-refs repo service token scenario-id)
           {:status 400 :body "smart HTTP only; specify ?service="}))
 
       (and (= :post (:request-method req)) (= tail "/git-upload-pack"))

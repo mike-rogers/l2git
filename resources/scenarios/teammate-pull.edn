@@ -12,9 +12,13 @@
              :message "Set up the project\n"
              :files   {"welcome.txt" "Welcome to l2git!\n"}}]}
 
- ;; Pat strikes the moment the learner first fetches. :once makes the hook
+ ;; Pat lands in the gap between the learner's last fetch and their push:
+ ;; the hook fires on the ref advertisement that starts their first push
+ ;; attempt, so their own client rejects with "fetch first". (Triggering on
+ ;; fetch instead would let clone-then-pull collect Pat's commit before any
+ ;; work exists, bypassing the divergence entirely.) :once makes the hook
  ;; idempotent: it is skipped when the named commit already exists.
- :after-fetch
+ :before-push
  {:once    :pat-1
   :commits [{:name    :pat-1
              :branch  "main"

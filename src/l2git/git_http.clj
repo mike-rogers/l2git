@@ -34,8 +34,13 @@
    :body    (ByteArrayInputStream. (.toByteArray out))})
 
 (defn info-refs
-  "Smart ref advertisement. `service` is git-upload-pack or git-receive-pack."
-  [^Repository repo ^String service]
+  "Smart ref advertisement. `service` is git-upload-pack or git-receive-pack.
+  A receive-pack advertisement is the start of a push, so the :before-push
+  puppeteering hook fires first — a 'teammate' landing here is advertised to
+  the client, whose own fast-forward check then rejects with 'fetch first'."
+  [^Repository repo ^String service token scenario-id]
+  (when (= service "git-receive-pack")
+    (session/puppeteer! token scenario-id :before-push))
   (let [out (ByteArrayOutputStream.)
         pck (PacketLineOut. out)]
     (.writeString pck (str "# service=" service "\n"))
@@ -57,7 +62,7 @@
               (.setBiDirectionalPipe false))]
     (.upload up (request-body req) out nil)
     (session/record-event! token {:type :fetch :scenario scenario-id})
-    (session/after-fetch! token scenario-id)
+    (session/puppeteer! token scenario-id :after-fetch)
     (session/evaluate-quietly! token scenario-id)
     (pkt-response out "application/x-git-upload-pack-result")))
 

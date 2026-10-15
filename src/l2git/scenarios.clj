@@ -6,6 +6,9 @@
     :setup          (fn [repo created-at]) -> known
     :evaluate       (fn [repo known]) -> {:pass? bool :message str}
     :after-fetch    (fn [repo known created-at]) -> {:known {} :event str} | nil
+    :before-push    same shape; fires on the ref advertisement that starts a
+                    push, so a 'teammate' can land in the fetch→push gap and
+                    the learner's own client rejects with 'fetch first'
     :after-evaluate (fn [repo known created-at result]) -> same | nil
 
   `known` maps commit names (:seed, :pat-1, …) to hash strings, bound when
@@ -158,7 +161,7 @@
       {:pass? false :message msg}
       {:pass? true :message pass})))
 
-(defn- compile-after-fetch [{:keys [once commits event]}]
+(defn- compile-puppeteer [{:keys [once commits event]}]
   (fn [repo known created-at]
     (when-not (and once (contains? known once))
       {:known (apply-commits! repo created-at commits)
@@ -175,7 +178,8 @@
       (assoc :setup    (compile-setup (:setup m))
              :evaluate (compile-evaluate (:evaluate m)))
       (cond->
-        (:after-fetch m)    (assoc :after-fetch (compile-after-fetch (:after-fetch m)))
+        (:after-fetch m)    (assoc :after-fetch (compile-puppeteer (:after-fetch m)))
+        (:before-push m)    (assoc :before-push (compile-puppeteer (:before-push m)))
         (:after-evaluate m) (assoc :after-evaluate (compile-after-evaluate (:after-evaluate m))))))
 
 ;; -------------------------------------------------------------- catalog

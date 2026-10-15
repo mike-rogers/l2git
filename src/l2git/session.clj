@@ -97,14 +97,15 @@
   [token scenario-id new-known]
   (swap! sessions update-in [token :scenarios scenario-id :known] merge new-known))
 
-(defn after-fetch!
-  "Run the scenario's :after-fetch hook, if any — the puppeteering point
-  where 'teammates' get to touch the origin once the learner has fetched.
-  The hook is (fn [repo known created-at]) -> {:known {} :event str} or nil;
-  idempotency is the hook's job (its :once key). Returned known entries
-  merge into the session's map, and the event reaches the UI live."
-  [token scenario-id]
-  (when-let [hook (:after-fetch (scenarios/by-id scenario-id))]
+(defn puppeteer!
+  "Run one of the scenario's puppeteering hooks (:after-fetch or
+  :before-push), if present — the points where 'teammates' get to touch the
+  origin in reaction to the learner. The hook is
+  (fn [repo known created-at]) -> {:known {} :event str} or nil; idempotency
+  is the hook's job (its :once key). Returned known entries merge into the
+  session's map, and the event reaches the UI live."
+  [token scenario-id hook-key]
+  (when-let [hook (hook-key (scenarios/by-id scenario-id))]
     (locking sessions
       (when-let [{:keys [repo known]} (get-in @sessions [token :scenarios scenario-id])]
         (when-let [{new-known :known event :event}
