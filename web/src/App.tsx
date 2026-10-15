@@ -114,6 +114,40 @@ function ScenarioCard({ scenario, onReset }: { scenario: Scenario; onReset: () =
   );
 }
 
+function SuccessBanner({
+  celebration,
+  scenarios,
+  onNext,
+  onDismiss,
+}: {
+  celebration: { scenario: string; message: string };
+  scenarios: Scenario[];
+  onNext: (id: string) => void;
+  onDismiss: () => void;
+}) {
+  const done = scenarios.find((s) => s.id === celebration.scenario);
+  const next = scenarios.find((s) => s.status !== "complete");
+  return (
+    <div className="banner" role="status">
+      <span className="banner-check">✓</span>
+      <div className="banner-text">
+        <strong>{done?.title ?? celebration.scenario} — complete!</strong>
+        <span className="banner-msg">{celebration.message}</span>
+      </div>
+      {next ? (
+        <button className="banner-next" onClick={() => onNext(next.id)}>
+          On to the next scenario →
+        </button>
+      ) : (
+        <span className="banner-done">That was the last one — more scenarios coming soon.</span>
+      )}
+      <button className="banner-x" onClick={onDismiss} aria-label="dismiss">
+        ×
+      </button>
+    </div>
+  );
+}
+
 function EventLog({ events }: { events: SessionEvent[] }) {
   return (
     <section className="card">
@@ -151,6 +185,9 @@ export default function App() {
   // null = auto mode: follow the first incomplete scenario (the original
   // tool's "progress to the next scenario on success"); a click pins one.
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [celebration, setCelebration] = useState<{ scenario: string; message: string } | null>(
+    null,
+  );
   const esRef = useRef<EventSource | null>(null);
 
   const current: Scenario | undefined =
@@ -187,7 +224,20 @@ export default function App() {
     refresh(session.token, current.id).catch(() => {});
     const es = eventStream(session.token);
     esRef.current = es;
-    es.onmessage = () => refresh(session.token, current.id).catch(() => {});
+    es.onmessage = (ev) => {
+      try {
+        const data = JSON.parse(ev.data) as SessionEvent;
+        if (data.type === "evaluation" && data["pass?"]) {
+          setCelebration({ scenario: data.scenario, message: data.message ?? "" });
+          // Pin the completed scenario so the card doesn't auto-advance
+          // out from under the celebration; the banner's button moves on.
+          setSelectedId(data.scenario);
+        }
+      } catch {
+        /* pings and malformed frames are fine to ignore */
+      }
+      refresh(session.token, current.id).catch(() => {});
+    };
     return () => es.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.token, current?.id]);
@@ -204,6 +254,17 @@ export default function App() {
           session <code>{session.token}</code>
         </span>
       </header>
+      {celebration && (
+        <SuccessBanner
+          celebration={celebration}
+          scenarios={session.scenarios}
+          onNext={(id) => {
+            setSelectedId(id);
+            setCelebration(null);
+          }}
+          onDismiss={() => setCelebration(null)}
+        />
+      )}
       <main>
         <div className="side">
           <ScenarioTree
