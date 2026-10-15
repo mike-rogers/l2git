@@ -19,6 +19,7 @@
     [:known name]                    the named commit exists
     [:branch-exists branch]
     [:reachable name branch]         named commit is ancestor-or-equal of tip
+    [:tip-is name branch]            branch tip IS the named commit (untouched)
     [:file-exists branch path]
     [:file-nonblank branch path]
     [:file-equals branch path text]
@@ -131,6 +132,9 @@
       :reachable     (let [[_ n branch] form]
                        (boolean (when-let [h (get known n)]
                                   (reachable? repo h branch))))
+      :tip-is        (let [[_ n branch] form]
+                       (boolean (when-let [h (get known n)]
+                                  (= h (some-> (tip repo branch) (ObjectId/toString))))))
       :file-exists   (let [[_ branch path] form]
                        (some? (branch-file repo branch path)))
       :file-nonblank (let [[_ branch path] form]

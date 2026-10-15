@@ -1,3 +1,4 @@
 ;; Catalog order. Each entry is a file in this directory.
 ["add-readme.edn"
- "teammate-pull.edn"]
+ "teammate-pull.edn"
+ "branch-basics.edn"]
