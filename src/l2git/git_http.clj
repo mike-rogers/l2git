@@ -14,7 +14,7 @@
             [l2git.session :as session])
   (:import [org.eclipse.jgit.lib Repository]
            [org.eclipse.jgit.transport UploadPack ReceivePack PostReceiveHook
-            PacketLineOut ReceiveCommand ReceiveCommand$Result
+            PreReceiveHook PacketLineOut ReceiveCommand ReceiveCommand$Result
             RefAdvertiser$PacketLineOutRefAdvertiser]
            [java.io ByteArrayInputStream ByteArrayOutputStream InputStream]
            [java.util.zip GZIPInputStream]))
@@ -34,13 +34,8 @@
    :body    (ByteArrayInputStream. (.toByteArray out))})
 
 (defn info-refs
-  "Smart ref advertisement. `service` is git-upload-pack or git-receive-pack.
-  A receive-pack advertisement is the start of a push, so the :before-push
-  puppeteering hook fires first — a 'teammate' landing here is advertised to
-  the client, whose own fast-forward check then rejects with 'fetch first'."
-  [^Repository repo ^String service token scenario-id]
-  (when (= service "git-receive-pack")
-    (session/puppeteer! token scenario-id :before-push))
+  "Smart ref advertisement. `service` is git-upload-pack or git-receive-pack."
+  [^Repository repo ^String service]
   (let [out (ByteArrayOutputStream.)
         pck (PacketLineOut. out)]
     (.writeString pck (str "# service=" service "\n"))
@@ -106,13 +101,26 @@
                                               :message  event})))))))))
 
 (defn receive-pack
-  "Accept a push, then evaluate it."
+  "Accept a push, then evaluate it. The :before-push puppeteering hook fires
+  here — a POST only happens when the client actually has updates to send,
+  so an empty push can't summon the teammate. A teammate landing now makes
+  the client's expected old ref id stale, so the push is rejected; the
+  pre-receive hook narrates why."
   [^Repository repo token scenario-id req]
-  (let [{:keys [known]} (session/repo-for! token scenario-id)
+  (let [ambushed? (boolean (session/puppeteer! token scenario-id :before-push))
+        {:keys [known]} (session/repo-for! token scenario-id)
         out (ByteArrayOutputStream.)
         rp  (doto (ReceivePack. repo)
               (.setBiDirectionalPipe false)
               (.setAtomic true)
+              (.setPreReceiveHook
+               (reify PreReceiveHook
+                 (onPreReceive [_ rp _commands]
+                   (when ambushed?
+                     (.sendMessage ^ReceivePack rp "")
+                     (.sendMessage ^ReceivePack rp
+                                   "⚡ Someone pushed to this repository while you were working, so your push is based on a stale view of it. Pull their commit and push again.")
+                     (.sendMessage ^ReceivePack rp "")))))
               (.setPostReceiveHook (evaluating-hook token scenario-id known)))]
     (.receive rp (request-body req) out nil)
     (pkt-response out "application/x-git-receive-pack-result")))

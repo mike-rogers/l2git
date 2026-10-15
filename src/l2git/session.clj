@@ -115,7 +115,8 @@
           (when event
             (record-event! token {:type     :teammate
                                   :scenario scenario-id
-                                  :message  event})))))))
+                                  :message  event}))
+          true)))))
 
 (defn reset-scenario!
   "Reset a scenario to its starting state by discarding its repo and known
