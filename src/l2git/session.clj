@@ -132,7 +132,8 @@
     (locking sessions
       (when-let [{:keys [repo known]} (get-in @sessions [token :scenarios scenario-id])]
         (when-let [{new-known :known event :event}
-                   (hook repo known (get-in @sessions [token :created-at]))]
+                   ((if (map? hook) (:run hook) hook)
+                    repo known (get-in @sessions [token :created-at]))]
           (when new-known
             (merge-known! token scenario-id new-known))
           (when event

@@ -71,7 +71,7 @@
     (onPostReceive [_ rp commands]
       (let [ok? (some #(= ReceiveCommand$Result/OK (.getResult ^ReceiveCommand %))
                       commands)]
-        (when (or ok? ambushed?)
+        (when (or ok? @ambushed?)
           (when-let [res (session/advance! token scenario-id {:quiet? false})]
             (let [send! #(.sendMessage ^ReceivePack rp ^String %)]
               (send! "")
@@ -107,24 +107,29 @@
 
 (defn receive-pack
   "Accept a push, then evaluate it. The :before-push puppeteering hook fires
-  here — a POST only happens when the client actually has updates to send,
-  so an empty push can't summon the teammate. A teammate landing now makes
-  the client's expected old ref id stale, so the push is rejected; the
-  pre-receive hook narrates why."
+  from the pre-receive hook, and only when the push actually targets the
+  hook's branch — pushes elsewhere can't summon the teammate, and a POST
+  only happens when the client has real updates, so empty pushes can't
+  either. The injected commit makes the targeted ref update fail its lock
+  check, so the colliding push is rejected; the hook narrates why."
   [^Repository repo token scenario-id req]
-  (let [ambushed? (boolean (session/puppeteer! token scenario-id :before-push))
+  (let [ambushed? (atom false)
         out (ByteArrayOutputStream.)
         rp  (doto (ReceivePack. repo)
               (.setBiDirectionalPipe false)
               (.setAtomic true)
               (.setPreReceiveHook
                (reify PreReceiveHook
-                 (onPreReceive [_ rp _commands]
-                   (when ambushed?
-                     (.sendMessage ^ReceivePack rp "")
-                     (.sendMessage ^ReceivePack rp
-                                   "⚡ Someone pushed to this repository while you were working, so your push is based on a stale view of it. Pull their commit and push again.")
-                     (.sendMessage ^ReceivePack rp "")))))
+                 (onPreReceive [_ rp commands]
+                   (when-let [{:keys [branch]} (:before-push (scenarios/by-id scenario-id))]
+                     (let [target (str "refs/heads/" branch)]
+                       (when (and (some #(= target (.getRefName ^ReceiveCommand %)) commands)
+                                  (session/puppeteer! token scenario-id :before-push))
+                         (reset! ambushed? true)
+                         (.sendMessage ^ReceivePack rp "")
+                         (.sendMessage ^ReceivePack rp
+                                       "⚡ Someone pushed to this repository while you were working, so your push is based on a stale view of it. Pull their commit and push again.")
+                         (.sendMessage ^ReceivePack rp "")))))))
               (.setPostReceiveHook (evaluating-hook token scenario-id ambushed?)))]
     (.receive rp (request-body req) out nil)
     (pkt-response out "application/x-git-receive-pack-result")))

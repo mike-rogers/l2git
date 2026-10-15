@@ -11,9 +11,11 @@
                     through `evaluate-progress`, which advances monotonically
                     and cascades (one interaction may complete several steps).
     :after-fetch    (fn [repo known created-at]) -> {:known {} :event str} | nil
-    :before-push    same shape; fires on the ref advertisement that starts a
-                    push, so a 'teammate' can land in the fetch→push gap and
-                    the learner's own client rejects with 'fetch first'
+    :before-push    {:branch str :run (same shape)}; fires mid-push, and only
+                    when the push actually targets :branch (default main) —
+                    pushes to other branches can't summon the teammate. The
+                    injected commit makes the targeted ref update fail its
+                    lock check, so the colliding push is rejected
     :after-evaluate (fn [repo known created-at result]) -> same | nil
 
   `known` maps commit names (:seed, :pat-1, …) to hash strings, bound when
@@ -211,7 +213,8 @@
       (dissoc :evaluate)
       (cond->
         (:after-fetch m)    (assoc :after-fetch (compile-puppeteer (:after-fetch m)))
-        (:before-push m)    (assoc :before-push (compile-puppeteer (:before-push m)))
+        (:before-push m)    (assoc :before-push {:branch (get-in m [:before-push :branch] "main")
+                                                 :run    (compile-puppeteer (:before-push m))})
         (:after-evaluate m) (assoc :after-evaluate (compile-after-evaluate (:after-evaluate m))))))
 
 ;; -------------------------------------------------------------- catalog

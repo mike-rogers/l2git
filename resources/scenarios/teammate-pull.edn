@@ -19,7 +19,8 @@
  ;; work exists, bypassing the divergence entirely.) :once makes the hook
  ;; idempotent: it is skipped when the named commit already exists.
  :before-push
- {:once    :pat-1
+ {:branch  "main"
+  :once    :pat-1
   :commits [{:name    :pat-1
              :branch  "main"
              :author  :pat
