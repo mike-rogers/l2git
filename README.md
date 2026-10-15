@@ -55,17 +55,44 @@ curl -s http://localhost:8070/api/session/<token>   # status + event log
 | `l2git.core`     | Ring routing, session API, Jetty bootstrap |
 | `l2git.git-http` | smart-HTTP endpoints (`info/refs`, upload-pack, receive-pack), evaluation hook |
 | `l2git.repo-gen` | in-memory repo construction (blobs/trees/commits via `ObjectInserter`) |
-| `l2git.scenarios`| scenario catalog: `:setup` builds origin, `:evaluate` judges pushes |
+| `l2git.scenarios`| the scenario DSL: loads EDN from `resources/scenarios/`, compiles to runtime hooks |
 | `l2git.session`  | token-keyed session state, event log, lazy repo materialization |
+
+## Authoring scenarios
+
+Scenarios are EDN files in `resources/scenarios/` (ordered by `index.edn`).
+A scenario declares `:setup` (seed commits, with timestamps relative to
+session creation like `[:hours-before 2]`), `:evaluate` (ordered checks,
+each a condition plus its failure message, and a pass message), and two
+optional puppeteering hooks: `:after-fetch` (e.g. a teammate pushes once
+the learner has cloned; `:once` keys make it idempotent) and
+`:after-evaluate` (react to outcomes, e.g. restore force-push-clobbered
+work). Conditions are tagged vectors (`[:reachable :pat-1 "main"]`,
+`[:file-nonblank "main" "standup.md"]`, `[:and …]`/`[:or …]`/`[:not …]`);
+file sets are literal maps or expressions (`[:merge [:files-at "main"] {…}]`).
+The docstring of `l2git.scenarios` is the DSL reference. Evaluation runs
+loudly on push (feedback as `remote:` lines) and quietly on fetch
+(complete-on-pass only), so lessons that finish by pulling still complete.
+
+Scenarios are resettable: discard the session's entry and the repo
+regenerates bit-identically (same seed hashes) from
+`(scenario, token, session-created-at)`. Local-clone recovery coaching
+should be level-appropriate (not yet implemented): basic scenarios say
+"delete your clone and re-clone"; intermediate/advanced say
+`git fetch` + `git reset --hard origin/main` — correct because the
+regenerated origin is deterministic, and itself a reset lesson.
 
 ## Roadmap
 
 - [x] Spine: generate → clone → push → evaluate → feedback in terminal
-- [ ] SSE/WebSocket progress events to the browser (replaces original's webhooks)
-- [ ] Web UI (TypeScript): instructions, hints, **live graph visualization**
-  of the session's remote (before/after for rebase lessons)
-- [ ] Scenario curriculum: init/README → pull teammate's changes (server
-  puppeteering) → branching, tagging → rebase, squash, amend-author →
+- [x] SSE progress events to the browser (replaces original's webhooks)
+- [x] Web UI (TypeScript): instructions, live graph, scenario tree
+  (Basic | Intermediate | Advanced), activity feed, reset
+- [x] EDN scenario format with templated timestamps, condition checks,
+  and puppeteering hooks
+- [ ] Scenario curriculum: branching, tagging → rebase, squash, amend-author →
   bad merge, lost commit + reflog rescue, force-push regret, bisect →
   `rebase --onto` after squash-merge, forks & upstream (two remotes/session)
+- [ ] Multi-step scenarios (ordered goals within one lesson) + hints
+- [ ] Prerequisites/gating between scenarios (pinned product decision)
 - [ ] Session persistence (regenerate repos from metadata) + hosted deploy

@@ -93,6 +93,12 @@ main { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px
 }
 .clone-url button:hover { border-color: var(--accent); color: var(--accent); }
 
+.reset-btn {
+  margin-top: 12px; border: none; background: none; cursor: pointer;
+  color: var(--muted); font: inherit; font-size: 12.5px; padding: 0;
+}
+.reset-btn:hover { color: var(--fail); }
+
 .tree .tree-group { margin-bottom: 10px; }
 .tree .tree-group:last-child { margin-bottom: 0; }
 .tree-root {

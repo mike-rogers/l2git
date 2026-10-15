@@ -1,0 +1,26 @@
+{:id "add-readme"
+ :title "Your first push"
+ :level :basic
+ :instructions
+ "Clone this repository, create a README.md with something in it, commit it on main, and push. Leave welcome.txt alone — it was here before you."
+
+ :setup
+ {:commits [{:name    :seed
+             :branch  "main"
+             :author  :curator
+             :when    [:hours-before 1]
+             :message "Set up the workshop\n"
+             :files   {"welcome.txt" "Welcome to l2git!\n"}}]}
+
+ :evaluate
+ {:checks [{:cond [:branch-exists "main"]
+            :fail "I don't see a main branch yet."}
+           {:cond [:reachable :seed "main"]
+            :fail "Your commits should build on the one that was already here — don't rewrite it away."}
+           {:cond [:file-exists "main" "README.md"]
+            :fail "The pushed commit doesn't contain a README.md."}
+           {:cond [:file-nonblank "main" "README.md"]
+            :fail "README.md is there, but it's empty — put something in it."}
+           {:cond [:file-equals "main" "welcome.txt" "Welcome to l2git!\n"]
+            :fail "welcome.txt was changed or removed — it should survive untouched."}]
+  :pass "README.md received. That's a clone, a commit, and a push — the whole loop. Well done."}}

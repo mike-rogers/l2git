@@ -100,19 +100,36 @@
 (defn after-fetch!
   "Run the scenario's :after-fetch hook, if any — the puppeteering point
   where 'teammates' get to touch the origin once the learner has fetched.
-  The hook is (fn [repo known]) -> map of new known entries, or nil for
-  no-op; idempotency is the hook's job (check its own known key). Returned
-  entries merge into the session's known map. Emits an event when the hook
-  acted, so the UI sees the teammate move live."
+  The hook is (fn [repo known created-at]) -> {:known {} :event str} or nil;
+  idempotency is the hook's job (its :once key). Returned known entries
+  merge into the session's map, and the event reaches the UI live."
   [token scenario-id]
   (when-let [hook (:after-fetch (scenarios/by-id scenario-id))]
     (locking sessions
       (when-let [{:keys [repo known]} (get-in @sessions [token :scenarios scenario-id])]
-        (when-let [new-known (hook repo known)]
-          (merge-known! token scenario-id new-known)
-          (record-event! token {:type     :teammate
-                                :scenario scenario-id
-                                :message  "Pat pushed a commit to main"}))))))
+        (when-let [{new-known :known event :event}
+                   (hook repo known (get-in @sessions [token :created-at]))]
+          (when new-known
+            (merge-known! token scenario-id new-known))
+          (when event
+            (record-event! token {:type     :teammate
+                                  :scenario scenario-id
+                                  :message  event})))))))
+
+(defn reset-scenario!
+  "Reset a scenario to its starting state by discarding its repo and known
+  map; the next git contact (or graph view) rematerializes it. Because repos
+  are pure functions of (scenario, token, session-created-at), the reborn
+  seed commits are bit-identical to the originals. The learner's local clone
+  still holds their old history, so the guidance is to re-clone."
+  [token scenario-id]
+  (locking sessions
+    (when (get-in @sessions [token :scenarios scenario-id])
+      (swap! sessions update-in [token :scenarios] dissoc scenario-id)
+      (record-event! token {:type     :reset
+                            :scenario scenario-id
+                            :message  "Scenario reset to its starting state — delete your local clone and clone fresh."})
+      true)))
 
 (defn status
   "JSON-safe view of a session."

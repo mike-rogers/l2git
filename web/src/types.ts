@@ -31,7 +31,7 @@ export interface Scenario {
 }
 
 export interface SessionEvent {
-  type: "fetch" | "evaluation" | "teammate";
+  type: "fetch" | "evaluation" | "teammate" | "reset";
   scenario: string;
   at: string;
   "pass?"?: boolean;

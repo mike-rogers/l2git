@@ -1,4 +1,4 @@
-{:paths ["src"]
+{:paths ["src" "resources"]
  :deps  {org.clojure/clojure              {:mvn/version "1.12.1"}
          org.eclipse.jgit/org.eclipse.jgit {:mvn/version "7.3.0.202506031305-r"}
          ring/ring-core                   {:mvn/version "1.13.0"}

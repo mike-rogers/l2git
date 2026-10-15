@@ -1,0 +1,57 @@
+{:id "teammate-pull"
+ :title "A teammate pushed first"
+ :level :basic
+ :instructions
+ "Clone this repository — but you're not alone in it. Your teammate Pat is about to push a commit. Create standup.md with a line about what you're working on, commit it on main, and push. If git refuses your push, that's the lesson: the remote moved while you worked. Fetch Pat's commit and integrate it (git pull, or fetch then merge/rebase), then push again. Whatever you do, don't force-push over Pat."
+
+ :setup
+ {:commits [{:name    :seed
+             :branch  "main"
+             :author  :curator
+             :when    [:hours-before 2]
+             :message "Set up the project\n"
+             :files   {"welcome.txt" "Welcome to l2git!\n"}}]}
+
+ ;; Pat strikes the moment the learner first fetches. :once makes the hook
+ ;; idempotent: it is skipped when the named commit already exists.
+ :after-fetch
+ {:once    :pat-1
+  :commits [{:name    :pat-1
+             :branch  "main"
+             :author  :pat
+             :when    :now
+             :message "Add my sprint notes\n"
+             :files   {"welcome.txt"  "Welcome to l2git!\n"
+                       "pat-notes.md" "- fix the flaky login test\n- review Sam's PR\n"}}]
+  :event   "Pat pushed a commit to main"}
+
+ :evaluate
+ {:checks [{:cond [:branch-exists "main"]
+            :fail "I don't see a main branch yet."}
+           {:cond [:reachable :pat-1 "main"]
+            :fail "Pat's commit is missing from main — did you force-push over it? That's exactly how teammates lose work. Pat is pushing his notes again: pull, then push without force."}
+           {:cond [:file-exists "main" "standup.md"]
+            :fail "Pat's work made it, but I don't see your standup.md yet."}
+           {:cond [:file-nonblank "main" "standup.md"]
+            :fail "standup.md is there but empty — write a line about what you're working on."}
+           {:cond [:file-exists "main" "pat-notes.md"]
+            :fail "Pat's file (pat-notes.md) went missing during your integration. Merge or rebase again, keeping Pat's changes."}]
+  :pass "Both your commit and Pat's live on main. You just survived your first diverged history — merge or rebase, either was right."}
+
+ ;; A force-push that clobbers Pat leaves his commit unreachable (a plain
+ ;; fetch can't rescue it), so Pat notices and pushes his notes again on top
+ ;; of whatever the learner left. Re-using :name :pat-1 rebinds the known
+ ;; hash the :evaluate checks look for.
+ :after-evaluate
+ {:when    [:and [:failed]
+                 [:known :pat-1]
+                 [:branch-exists "main"]
+                 [:not [:reachable :pat-1 "main"]]]
+  :commits [{:name    :pat-1
+             :branch  "main"
+             :author  :pat
+             :when    :now
+             :message "Restore my sprint notes\n"
+             :files   [:merge [:files-at "main"]
+                       {"pat-notes.md" "- fix the flaky login test\n- review Sam's PR\n"}]}]
+  :event   "Pat noticed his commit vanished and pushed his notes again — pull before continuing"}}

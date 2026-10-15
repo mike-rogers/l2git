@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createSession, eventStream, getGraph, getSession } from "./api";
+import { createSession, eventStream, getGraph, getSession, resetScenario } from "./api";
 import Graph from "./Graph";
 import type { Graph as GraphData, Level, Scenario, Session, SessionEvent } from "./types";
 
@@ -84,7 +84,7 @@ function CloneUrl({ url }: { url: string }) {
   );
 }
 
-function ScenarioCard({ scenario }: { scenario: Scenario }) {
+function ScenarioCard({ scenario, onReset }: { scenario: Scenario; onReset: () => void }) {
   return (
     <section className={`card scenario ${scenario.status}`}>
       <header>
@@ -95,6 +95,21 @@ function ScenarioCard({ scenario }: { scenario: Scenario }) {
       </header>
       <p>{scenario.instructions}</p>
       <CloneUrl url={scenario["clone-url"]} />
+      {scenario.status !== "not-started" && (
+        <button
+          className="reset-btn"
+          onClick={() => {
+            if (
+              window.confirm(
+                "Reset this scenario to its starting state? Your pushed work on it is discarded — delete your local clone and clone fresh afterwards.",
+              )
+            )
+              onReset();
+          }}
+        >
+          ↺ reset scenario
+        </button>
+      )}
     </section>
   );
 }
@@ -113,6 +128,8 @@ function EventLog({ events }: { events: SessionEvent[] }) {
                 <span>⇣ repository fetched</span>
               ) : e.type === "teammate" ? (
                 <span className="teammate">⇡ {e.message}</span>
+              ) : e.type === "reset" ? (
+                <span className="muted">↺ {e.message}</span>
               ) : (
                 <span>
                   {e["pass?"] ? "✓" : "✗"} {e.message}
@@ -194,7 +211,17 @@ export default function App() {
             selectedId={current.id}
             onSelect={setSelectedId}
           />
-          <ScenarioCard scenario={current} />
+          <ScenarioCard
+            scenario={current}
+            onReset={() => {
+              resetScenario(session.token, current.id)
+                .then((s) => {
+                  setSession(s);
+                  return refresh(session.token, current.id);
+                })
+                .catch(() => {});
+            }}
+          />
           <EventLog events={session.events} />
         </div>
         <div className="stage card">

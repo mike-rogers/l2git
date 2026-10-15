@@ -89,12 +89,16 @@
           ;; Give the scenario a chance to react to the outcome (e.g. a
           ;; teammate restoring work the learner force-pushed away).
           (when-let [hook (:after-evaluate scenario)]
-            (when-let [{:keys [known event]}
-                       (hook repo known {:pass? pass? :message message})]
-              (when known
-                (session/merge-known! token scenario-id known))
+            (when-let [{new-known :known event :event}
+                       (hook repo known
+                             (:created-at (session/lookup token))
+                             {:pass? pass? :message message})]
+              (when new-known
+                (session/merge-known! token scenario-id new-known))
               (when event
-                (session/record-event! token (assoc event :scenario scenario-id))))))))))
+                (session/record-event! token {:type     :teammate
+                                              :scenario scenario-id
+                                              :message  event})))))))))
 
 (defn receive-pack
   "Accept a push, then evaluate it."

@@ -19,6 +19,12 @@ export async function getGraph(token: string, scenario: string): Promise<Graph> 
   return res.json();
 }
 
+export async function resetScenario(token: string, scenario: string): Promise<Session> {
+  const res = await fetch(`/api/session/${token}/reset/${scenario}`, { method: "POST" });
+  if (!res.ok) throw new Error(`resetScenario: ${res.status}`);
+  return res.json();
+}
+
 export function eventStream(token: string): EventSource {
   return new EventSource(`/api/session/${token}/events`);
 }

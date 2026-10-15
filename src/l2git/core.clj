@@ -134,6 +134,16 @@
       (and (= :post method) (= uri "/api/session"))
       (json-response (session-payload (:token (session/create!))))
 
+      (and (= :post method)
+           (re-matches #"^/api/session/([a-z0-9]+)/reset/([a-z0-9-]+)$" uri))
+      (let [[_ token scenario-id]
+            (re-matches #"^/api/session/([a-z0-9]+)/reset/([a-z0-9-]+)$" uri)]
+        (cond
+          (nil? (session/lookup token))        (json-response 404 {:error "unknown session"})
+          (nil? (scenarios/by-id scenario-id)) (json-response 404 {:error "unknown scenario"})
+          :else (do (session/reset-scenario! token scenario-id)
+                    (json-response (session-payload token)))))
+
       (= :get method)
       (if-let [[_ token sub scenario-id]
                (re-matches #"^/api/session/([a-z0-9]+)(?:/(events|graph)(?:/([a-z0-9-]+))?)?$" uri)]
