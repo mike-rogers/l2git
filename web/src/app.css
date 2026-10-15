@@ -1,0 +1,145 @@
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --text: #1a2230;
+  --muted: #6b7686;
+  --border: #e2e6ec;
+  --accent: #3b82d9;
+  --pass: #2e9e5b;
+  --fail: #d9534f;
+  --pill-bg: #eef2f7;
+  --lane-0: #3b82d9;
+  --lane-1: #c4731f;
+  --lane-2: #8956c8;
+  --lane-3: #2e9e8f;
+  --lane-4: #c8567e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11151c;
+    --card: #1a202a;
+    --text: #e6eaf1;
+    --muted: #8b94a5;
+    --border: #2a3240;
+    --accent: #5b9ae8;
+    --pass: #4cc47f;
+    --fail: #e07370;
+    --pill-bg: #232b38;
+    --lane-0: #5b9ae8;
+    --lane-1: #d99a4e;
+    --lane-2: #a97fe0;
+    --lane-3: #4cc4b4;
+    --lane-4: #e07d9f;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+code, .hash {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.86em;
+}
+
+.layout { max-width: 1100px; margin: 0 auto; padding: 0 16px 48px; }
+
+.masthead {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 20px 4px 14px;
+}
+.masthead h1 { margin: 0; font-size: 26px; letter-spacing: 0.5px; }
+.tagline { color: var(--muted); font-style: italic; }
+.token { margin-left: auto; color: var(--muted); font-size: 13px; }
+.token code { background: var(--pill-bg); padding: 2px 7px; border-radius: 6px; }
+
+main { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px; }
+@media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 20px;
+}
+.side { display: flex; flex-direction: column; gap: 16px; }
+
+.card h2 { margin: 0; font-size: 18px; }
+.card h3 { margin: 0 0 12px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+
+.scenario header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.scenario p { margin: 10px 0 14px; }
+
+.status-pill {
+  font-size: 12px; padding: 3px 10px; border-radius: 99px;
+  background: var(--pill-bg); color: var(--muted); white-space: nowrap;
+}
+.status-pill.complete { background: color-mix(in srgb, var(--pass) 16%, transparent); color: var(--pass); }
+
+.clone-url {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--pill-bg); border-radius: 8px; padding: 8px 10px;
+}
+.clone-url code { overflow-x: auto; white-space: nowrap; flex: 1; }
+.clone-url button {
+  border: 1px solid var(--border); background: var(--card); color: var(--text);
+  border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 12px;
+}
+.clone-url button:hover { border-color: var(--accent); color: var(--accent); }
+
+.events { list-style: none; margin: 0; padding: 0; }
+.events li {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13.5px;
+}
+.events li:last-child { border-bottom: none; }
+.events li.pass { color: var(--pass); }
+.events li.fail { color: var(--fail); }
+.events time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+.muted { color: var(--muted); }
+
+.stage h3 .pulse {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--pass); margin-left: 6px; vertical-align: 1px;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+.graph { position: relative; }
+.graph-rails { position: absolute; top: 0; left: 0; }
+.graph-rows { display: flex; flex-direction: column; }
+.graph-row {
+  height: 44px; display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--border) 60%, transparent);
+  animation: arrive 0.45s ease-out;
+}
+.graph-row:last-child { border-bottom: none; }
+@keyframes arrive { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; } }
+
+.graph-row .hash { color: var(--muted); }
+.graph-row .message { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-row .meta { margin-left: auto; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+
+.ref-pill {
+  font-size: 11.5px; font-family: ui-monospace, Menlo, monospace;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  padding: 1px 8px; border-radius: 99px; white-space: nowrap;
+}
+.ref-pill.head { font-weight: 700; }
+
+.seeded-pill {
+  font-size: 11px; color: var(--muted);
+  border: 1px dashed var(--border); padding: 1px 8px; border-radius: 99px;
+  white-space: nowrap;
+}
+
+.graph-empty, .boot, .boot-error { color: var(--muted); padding: 24px; text-align: center; }
+.boot-error { color: var(--fail); }

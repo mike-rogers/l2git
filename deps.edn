@@ -1,0 +1,10 @@
+{:paths ["src"]
+ :deps  {org.clojure/clojure              {:mvn/version "1.12.1"}
+         org.eclipse.jgit/org.eclipse.jgit {:mvn/version "7.3.0.202506031305-r"}
+         ring/ring-core                   {:mvn/version "1.13.0"}
+         ring/ring-jetty-adapter          {:mvn/version "1.13.0"}
+         org.clojure/data.json            {:mvn/version "2.5.0"}
+         org.slf4j/slf4j-simple           {:mvn/version "2.0.16"}}
+ :aliases
+ {:run  {:main-opts ["-m" "l2git.core"]}
+  :repl {:extra-paths ["dev"]}}}

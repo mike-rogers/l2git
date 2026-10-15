@@ -1,0 +1,10 @@
+.cpcache/
+.clj-kondo/.cache/
+.lsp/
+.idea/
+*.iml
+target/
+web/node_modules/
+web/dist/
+*.log
+.DS_Store
