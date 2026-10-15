@@ -2,7 +2,7 @@
  :title "A teammate pushed first"
  :level :basic
  :instructions
- "Clone this repository — but you're not alone in it. Your teammate Pat is about to push a commit. Create standup.md with a line about what you're working on, commit it on main, and push. If git refuses your push, that's the lesson: the remote moved while you worked. Fetch Pat's commit and integrate it (git pull, or fetch then merge/rebase), then push again. Whatever you do, don't force-push over Pat."
+ "Clone this repository — but you're not alone in it. Your teammate Pat is working too, and shared history means your pushes can collide with his. This one's a two-parter."
 
  :setup
  {:commits [{:name    :seed
@@ -29,18 +29,38 @@
                        "pat-notes.md" "- fix the flaky login test\n- review Sam's PR\n"}}]
   :event   "Pat pushed a commit to main"}
 
- :evaluate
- {:checks [{:cond [:branch-exists "main"]
-            :fail "I don't see a main branch yet."}
-           {:cond [:reachable :pat-1 "main"]
-            :fail "Pat's commit is missing from main — did you force-push over it? That's exactly how teammates lose work. Pat is pushing his notes again: pull, then push without force."}
-           {:cond [:file-exists "main" "standup.md"]
-            :fail "Pat's work made it, but I don't see your standup.md yet."}
-           {:cond [:file-nonblank "main" "standup.md"]
-            :fail "standup.md is there but empty — write a line about what you're working on."}
-           {:cond [:file-exists "main" "pat-notes.md"]
-            :fail "Pat's file (pat-notes.md) went missing during your integration. Merge or rebase again, keeping Pat's changes."}]
-  :pass "Both your commit and Pat's live on main. You just survived your first diverged history — merge or rebase, either was right."}
+ :steps
+ [{:id :collide
+   :title "Make your move"
+   :instructions
+   "Create standup.md with a line about what you're working on, commit it on main, and push. Something is going to happen — watch git's output closely."
+   :hints
+   ["Work like you own the place: create the file, add it, commit it, push it."
+    "echo \"- fixing the login flow\" > standup.md, then git add standup.md, git commit -m \"Add standup\", git push origin main"
+    "Your push is going to be refused — that's the point, not a mistake. While you worked, the remote moved. Read what git prints: it tells you exactly what happened and what to do about it."]
+   :checks [{:cond [:known :pat-1]
+             :fail "Commit standup.md on main and push it — I'll be here."}]
+   :pass "Pat pushed while you were working, and git refused your push. That's a collision, not a catastrophe — nothing is lost."}
+
+  {:id :integrate
+   :title "Integrate and push again"
+   :instructions
+   "Your history and Pat's have diverged. Get his commit (git pull, or git fetch then merge/rebase), make sure both your standup.md and his pat-notes.md survive, and push again. Whatever you do, don't force-push over him."
+   :hints
+   ["The rejection told you what to do: your view of the remote is stale, so refresh it first."
+    "git pull --rebase origin main, then git push origin main. (Plain git pull works too — it merges instead of rebasing.)"
+    "pull is fetch + integrate. With --rebase, your commit is replayed on top of Pat's, keeping history linear; without it, git makes a merge commit joining both lines. Either way both commits survive — force-push is the only move here that destroys work."]
+   :checks [{:cond [:branch-exists "main"]
+             :fail "I don't see a main branch yet."}
+            {:cond [:reachable :pat-1 "main"]
+             :fail "Pat's commit is missing from main — did you force-push over it? That's exactly how teammates lose work. Pat is pushing his notes again: pull, then push without force."}
+            {:cond [:file-exists "main" "standup.md"]
+             :fail "Pat's work made it, but I don't see your standup.md yet."}
+            {:cond [:file-nonblank "main" "standup.md"]
+             :fail "standup.md is there but empty — write a line about what you're working on."}
+            {:cond [:file-exists "main" "pat-notes.md"]
+             :fail "Pat's file (pat-notes.md) went missing during your integration. Merge or rebase again, keeping Pat's changes."}]
+   :pass "Both your commit and Pat's live on main. You just survived your first diverged history — merge or rebase, either was right."}]
 
  ;; A force-push that clobbers Pat leaves his commit unreachable (a plain
  ;; fetch can't rescue it), so Pat notices and pushes his notes again on top

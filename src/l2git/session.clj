@@ -67,7 +67,7 @@
             (or (get-in @sessions [token :scenarios scenario-id])
                 (let [repo  (rg/new-repo (str token "/" scenario-id))
                       known ((:setup scenario) repo (:created-at session))
-                      entry {:repo repo :known known :status :in-progress}]
+                      entry {:repo repo :known known :status :in-progress :step-idx 0}]
                   (swap! sessions assoc-in [token :scenarios scenario-id] entry)
                   entry)))))))
 
@@ -76,21 +76,44 @@
   [token scenario-id]
   (swap! sessions assoc-in [token :scenarios scenario-id :status] :complete))
 
-(defn evaluate-quietly!
-  "Evaluate the scenario's current repo state outside a push (e.g. after a
-  fetch). Records and completes only on a pass — a fetch of unfinished work
-  earns no noisy failure. Covers flows where the goal state is reached by
-  pulling rather than pushing (e.g. a teammate restoring clobbered work)."
-  [token scenario-id]
-  (when-let [{:keys [repo known status]} (get-in @sessions [token :scenarios scenario-id])]
+(defn advance!
+  "Run the step engine against the scenario's current repo state, persist
+  progress, and record events: a :step event per newly passed step (the last
+  one becomes the :evaluation pass event when the scenario completes, which
+  is what the UI's banner listens for). With :quiet? true (fetches), a
+  failing current step records nothing — a fetch of unfinished work earns no
+  noisy failure, but progress made by pulling still advances and completes.
+  Returns the engine result, or nil if there was nothing to evaluate."
+  [token scenario-id {:keys [quiet?]}]
+  (when-let [{:keys [repo known status step-idx]} (get-in @sessions [token :scenarios scenario-id])]
     (when (not= :complete status)
-      (let [{:keys [pass? message]} ((:evaluate (scenarios/by-id scenario-id)) repo known)]
-        (when pass?
+      (let [res (scenarios/evaluate-progress (scenarios/by-id scenario-id)
+                                             repo known (or step-idx 0))
+            step-msg (fn [{:keys [title message]}]
+                       (str (when title (str title " — ")) message))
+            passed   (:passed res)]
+        (swap! sessions assoc-in [token :scenarios scenario-id :step-idx] (:idx res))
+        (doseq [p (if (:complete? res) (butlast passed) passed)]
+          (record-event! token {:type     :step
+                                :scenario scenario-id
+                                :message  (step-msg p)}))
+        (cond
+          (:complete? res)
+          (do (record-event! token {:type     :evaluation
+                                    :scenario scenario-id
+                                    :pass?    true
+                                    :message  (step-msg (last passed))})
+              (swap! sessions assoc-in [token :scenarios scenario-id :status] :complete))
+
+          ;; A fail right after passed steps is just the next step starting —
+          ;; the step events already tell that story, so no failure event.
+          (and (:fail res) (empty? passed) (not quiet?))
           (record-event! token {:type     :evaluation
                                 :scenario scenario-id
-                                :pass?    true
-                                :message  message})
-          (swap! sessions assoc-in [token :scenarios scenario-id :status] :complete))))))
+                                :pass?    false
+                                :message  (let [{:keys [title message]} (:fail res)]
+                                            (str (when title (str title ": ")) message))}))
+        res))))
 
 (defn merge-known!
   "Merge new entries into a scenario's known map."
@@ -140,6 +163,7 @@
     {:token      (:token s)
      :created-at (str (:created-at s))
      :scenarios  (into {}
-                       (map (fn [[id {:keys [status]}]] [id {:status (name status)}]))
+                       (map (fn [[id {:keys [status step-idx]}]]
+                              [id {:status (name status) :step-idx (or step-idx 0)}]))
                        (:scenarios s))
      :events     (:events s)}))

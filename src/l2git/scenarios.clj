@@ -4,7 +4,12 @@
   hooks:
 
     :setup          (fn [repo created-at]) -> known
-    :evaluate       (fn [repo known]) -> {:pass? bool :message str}
+    :steps          [{:id :title :instructions :hints :pass :check}] where
+                    :check is (fn [repo known]) -> nil | failure-message.
+                    EDN may give :steps directly, or :evaluate
+                    {:checks :pass} as single-step sugar. Progress runs
+                    through `evaluate-progress`, which advances monotonically
+                    and cascades (one interaction may complete several steps).
     :after-fetch    (fn [repo known created-at]) -> {:known {} :event str} | nil
     :before-push    same shape; fires on the ref advertisement that starts a
                     push, so a 'teammate' can land in the fetch→push gap and
@@ -153,13 +158,39 @@
   (fn [repo created-at]
     (apply-commits! repo created-at commits)))
 
-(defn- compile-evaluate [{:keys [checks pass]}]
-  (fn [repo known]
-    (if-let [msg (some (fn [{c :cond f :fail}]
-                         (when-not (check repo known {} c) f))
-                       checks)]
-      {:pass? false :message msg}
-      {:pass? true :message pass})))
+(defn- compile-step [i step]
+  {:id           (or (:id step) (keyword (str "step-" (inc i))))
+   :title        (:title step)
+   :instructions (:instructions step)
+   :hints        (vec (:hints step))
+   :pass         (:pass step)
+   :check        (let [checks (:checks step)]
+                   (fn [repo known]
+                     (some (fn [{c :cond f :fail}]
+                             (when-not (check repo known {} c) f))
+                           checks)))})
+
+(defn- normalize-steps [m]
+  (or (:steps m)
+      [(:evaluate m)]))
+
+(defn evaluate-progress
+  "Run the step engine from `step-idx` against current repo state. Steps
+  advance monotonically and cascade — one interaction may complete several.
+  Returns {:idx new-idx :total n :passed [{:title :message}] :complete? bool
+  :fail {:step 1-based :title :message} | nil}."
+  [scenario repo known step-idx]
+  (let [steps (:steps scenario)
+        total (count steps)]
+    (loop [i step-idx, passed []]
+      (if (>= i total)
+        {:idx i :total total :passed passed :complete? true}
+        (let [step (nth steps i)]
+          (if-let [fail-msg ((:check step) repo known)]
+            {:idx i :total total :passed passed :complete? false
+             :fail {:step (inc i) :title (:title step) :message fail-msg}}
+            (recur (inc i)
+                   (conj passed {:title (:title step) :message (:pass step)}))))))))
 
 (defn- compile-puppeteer [{:keys [once commits event]}]
   (fn [repo known created-at]
@@ -175,8 +206,9 @@
 
 (defn- compile-scenario [m]
   (-> m
-      (assoc :setup    (compile-setup (:setup m))
-             :evaluate (compile-evaluate (:evaluate m)))
+      (assoc :setup (compile-setup (:setup m))
+             :steps (vec (map-indexed compile-step (normalize-steps m))))
+      (dissoc :evaluate)
       (cond->
         (:after-fetch m)    (assoc :after-fetch (compile-puppeteer (:after-fetch m)))
         (:before-push m)    (assoc :before-push (compile-puppeteer (:before-push m)))

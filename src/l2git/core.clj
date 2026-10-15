@@ -38,17 +38,33 @@
 
 (defn- session-payload
   "Everything the frontend needs to (re)hydrate a session: the scenario
-  catalog with per-session clone URLs and statuses, plus the event log."
+  catalog with per-session clone URLs, statuses, and step progress, plus
+  the event log."
   [token]
   (when-let [s (session/status token)]
     (assoc s :scenarios
-           (mapv (fn [{:keys [id title instructions level]}]
-                   {:id           id
-                    :title        title
-                    :level        (name level)
-                    :instructions instructions
-                    :clone-url    (clone-url token id)
-                    :status       (get-in s [:scenarios id :status] "not-started")})
+           (mapv (fn [{:keys [id title instructions level steps]}]
+                   (let [status    (get-in s [:scenarios id :status] "not-started")
+                         complete? (= status "complete")
+                         step-idx  (get-in s [:scenarios id :step-idx] 0)]
+                     {:id           id
+                      :title        title
+                      :level        (name level)
+                      :instructions instructions
+                      :clone-url    (clone-url token id)
+                      :status       status
+                      :current-step step-idx
+                      :steps        (vec (map-indexed
+                                          (fn [i st]
+                                            {:id           (name (:id st))
+                                             :title        (:title st)
+                                             :instructions (:instructions st)
+                                             :hints        (:hints st)
+                                             :status       (cond
+                                                             (or complete? (< i step-idx)) "complete"
+                                                             (= i step-idx)                "current"
+                                                             :else                         "upcoming")})
+                                          steps))}))
                  scenarios/catalog))))
 
 ;; --------------------------------------------------------------------- SSE

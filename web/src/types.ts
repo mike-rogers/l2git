@@ -21,6 +21,14 @@ export interface Graph {
 
 export type Level = "basic" | "intermediate" | "advanced";
 
+export interface Step {
+  id: string;
+  title: string | null;
+  instructions: string | null;
+  hints: string[];
+  status: "complete" | "current" | "upcoming";
+}
+
 export interface Scenario {
   id: string;
   title: string;
@@ -28,10 +36,12 @@ export interface Scenario {
   instructions: string;
   "clone-url": string;
   status: "not-started" | "in-progress" | "complete";
+  steps: Step[];
+  "current-step": number;
 }
 
 export interface SessionEvent {
-  type: "fetch" | "evaluation" | "teammate" | "reset";
+  type: "fetch" | "evaluation" | "teammate" | "reset" | "step";
   scenario: string;
   at: string;
   "pass?"?: boolean;

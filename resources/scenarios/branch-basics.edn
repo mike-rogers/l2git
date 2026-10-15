@@ -12,17 +12,22 @@
              :message "Set up the workshop\n"
              :files   {"welcome.txt" "Welcome to l2git!\n"}}]}
 
- :evaluate
- {:checks [{:cond [:branch-exists "main"]
-            :fail "main went missing — it should still exist, untouched."}
-           {:cond [:tip-is :seed "main"]
-            :fail "main moved — your commit should live on feature/greeting, not on main. Put the work on the branch (git branch feature/greeting before you reset anything, so the commit isn't lost), or use the reset button and start fresh."}
-           {:cond [:branch-exists "feature/greeting"]
-            :fail "I don't see a feature/greeting branch on the remote yet. Create it locally (git switch -c feature/greeting), commit there, and push it with: git push -u origin feature/greeting"}
-           {:cond [:reachable :seed "feature/greeting"]
-            :fail "feature/greeting doesn't grow out of the existing history — branch from main so the workshop's commit stays in your past."}
-           {:cond [:file-exists "feature/greeting" "greeting.txt"]
-            :fail "The branch is here, but it doesn't contain a greeting.txt yet."}
-           {:cond [:file-nonblank "feature/greeting" "greeting.txt"]
-            :fail "greeting.txt is there but empty — give it a friendly line."}]
-  :pass "feature/greeting is on the remote with your commit, and main never moved. That's the whole trick: branches are just labels, and the work went on yours."}}
+ :steps
+ [{:id :push-branch
+   :hints
+   ["A branch is just a movable label. Make a new one, commit while standing on it, and push that label to the remote."
+    "git switch -c feature/greeting, create greeting.txt, git add + commit, then git push -u origin feature/greeting"
+    "switch -c creates the label and moves you onto it, so your commit advances feature/greeting while main stays pinned where it was. push -u sends the new branch to the remote and remembers the pairing, so future pushes from this branch are just git push."]
+   :checks [{:cond [:branch-exists "main"]
+             :fail "main went missing — it should still exist, untouched."}
+            {:cond [:tip-is :seed "main"]
+             :fail "main moved — your commit should live on feature/greeting, not on main. Put the work on the branch (git branch feature/greeting before you reset anything, so the commit isn't lost), or use the reset button and start fresh."}
+            {:cond [:branch-exists "feature/greeting"]
+             :fail "I don't see a feature/greeting branch on the remote yet. Create it locally (git switch -c feature/greeting), commit there, and push it with: git push -u origin feature/greeting"}
+            {:cond [:reachable :seed "feature/greeting"]
+             :fail "feature/greeting doesn't grow out of the existing history — branch from main so the workshop's commit stays in your past."}
+            {:cond [:file-exists "feature/greeting" "greeting.txt"]
+             :fail "The branch is here, but it doesn't contain a greeting.txt yet."}
+            {:cond [:file-nonblank "feature/greeting" "greeting.txt"]
+             :fail "greeting.txt is there but empty — give it a friendly line."}]
+   :pass "feature/greeting is on the remote with your commit, and main never moved. That's the whole trick: branches are just labels, and the work went on yours."}]}

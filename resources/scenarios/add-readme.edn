@@ -12,15 +12,20 @@
              :message "Set up the workshop\n"
              :files   {"welcome.txt" "Welcome to l2git!\n"}}]}
 
- :evaluate
- {:checks [{:cond [:branch-exists "main"]
-            :fail "I don't see a main branch yet."}
-           {:cond [:reachable :seed "main"]
-            :fail "Your commits should build on the one that was already here — don't rewrite it away."}
-           {:cond [:file-exists "main" "README.md"]
-            :fail "The pushed commit doesn't contain a README.md."}
-           {:cond [:file-nonblank "main" "README.md"]
-            :fail "README.md is there, but it's empty — put something in it."}
-           {:cond [:file-equals "main" "welcome.txt" "Welcome to l2git!\n"]
-            :fail "welcome.txt was changed or removed — it should survive untouched."}]
-  :pass "README.md received. That's a clone, a commit, and a push — the whole loop. Well done."}}
+ :steps
+ [{:id :push-readme
+   :hints
+   ["It's the whole loop: get the repository, change it, record the change, send it back."
+    "git clone <the url above>, create README.md with any text, then git add README.md, git commit -m \"Add README\", git push"
+    "clone copies the entire repository — history and all — onto your machine. add stages your new file, commit records a snapshot of everything staged, and push sends your new commit back to the remote, where I'm watching for it."]
+   :checks [{:cond [:branch-exists "main"]
+             :fail "I don't see a main branch yet."}
+            {:cond [:reachable :seed "main"]
+             :fail "Your commits should build on the one that was already here — don't rewrite it away."}
+            {:cond [:file-exists "main" "README.md"]
+             :fail "The pushed commit doesn't contain a README.md."}
+            {:cond [:file-nonblank "main" "README.md"]
+             :fail "README.md is there, but it's empty — put something in it."}
+            {:cond [:file-equals "main" "welcome.txt" "Welcome to l2git!\n"]
+             :fail "welcome.txt was changed or removed — it should survive untouched."}]
+   :pass "README.md received. That's a clone, a commit, and a push — the whole loop. Well done."}]}

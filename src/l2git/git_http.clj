@@ -58,47 +58,52 @@
     (.upload up (request-body req) out nil)
     (session/record-event! token {:type :fetch :scenario scenario-id})
     (session/puppeteer! token scenario-id :after-fetch)
-    (session/evaluate-quietly! token scenario-id)
+    (session/advance! token scenario-id {:quiet? true})
     (pkt-response out "application/x-git-upload-pack-result")))
 
 (defn- evaluating-hook
-  "PostReceiveHook that runs the scenario's evaluator and talks back to the
-  user's terminal via 'remote:' sideband messages."
-  ^PostReceiveHook [token scenario-id known]
+  "PostReceiveHook that runs the step engine and talks back to the user's
+  terminal via 'remote:' sideband messages. Evaluates when a ref actually
+  moved, and also when this push triggered a :before-push ambush — the
+  rejection itself can be a step's completion (teammate-pull's collision)."
+  ^PostReceiveHook [token scenario-id ambushed?]
   (reify PostReceiveHook
     (onPostReceive [_ rp commands]
-      ;; Only evaluate when at least one ref actually moved — a fully
-      ;; rejected push shouldn't earn confusing evaluator feedback on top
-      ;; of git's own rejection.
-      (when (some #(= ReceiveCommand$Result/OK (.getResult ^ReceiveCommand %))
-                  commands)
-        (let [scenario (scenarios/by-id scenario-id)
-              repo     (.getRepository ^ReceivePack rp)
-              ;; re-read known: an :after-fetch hook may have added to it
-              known    (or (:known (session/repo-for! token scenario-id)) known)
-              {:keys [pass? message]} ((:evaluate scenario) repo known)]
-          (session/record-event! token {:type     :evaluation
-                                        :scenario scenario-id
-                                        :pass?    pass?
-                                        :message  message})
-          (when pass?
-            (session/complete! token scenario-id))
-          (.sendMessage ^ReceivePack rp "")
-          (.sendMessage ^ReceivePack rp (str (if pass? "✓ " "✗ ") message))
-          (.sendMessage ^ReceivePack rp "")
-          ;; Give the scenario a chance to react to the outcome (e.g. a
-          ;; teammate restoring work the learner force-pushed away).
-          (when-let [hook (:after-evaluate scenario)]
-            (when-let [{new-known :known event :event}
-                       (hook repo known
-                             (:created-at (session/lookup token))
-                             {:pass? pass? :message message})]
-              (when new-known
-                (session/merge-known! token scenario-id new-known))
-              (when event
-                (session/record-event! token {:type     :teammate
-                                              :scenario scenario-id
-                                              :message  event})))))))))
+      (let [ok? (some #(= ReceiveCommand$Result/OK (.getResult ^ReceiveCommand %))
+                      commands)]
+        (when (or ok? ambushed?)
+          (when-let [res (session/advance! token scenario-id {:quiet? false})]
+            (let [send! #(.sendMessage ^ReceivePack rp ^String %)]
+              (send! "")
+              (doseq [{:keys [title message]} (:passed res)]
+                (send! (str "✓ " (when title (str title " — ")) message)))
+              (when-let [{:keys [step title message]} (:fail res)]
+                (if (seq (:passed res))
+                  ;; Steps were just passed, so this 'failure' is only the
+                  ;; next step beginning — announce it instead of scolding.
+                  (send! (str "→ next · step " step "/" (:total res)
+                              (when title (str " · " title))))
+                  (send! (str "✗ "
+                              (when title (str "(step " step "/" (:total res) " · " title ") "))
+                              message))))
+              (when (:complete? res)
+                (send! "★ Scenario complete — see you at the next one."))
+              (send! ""))
+            ;; Give the scenario a chance to react to the outcome (e.g. a
+            ;; teammate restoring work the learner force-pushed away).
+            (let [scenario (scenarios/by-id scenario-id)]
+              (when-let [hook (:after-evaluate scenario)]
+                (when-let [{new-known :known event :event}
+                           (hook (.getRepository ^ReceivePack rp)
+                                 (:known (session/repo-for! token scenario-id))
+                                 (:created-at (session/lookup token))
+                                 {:pass? (:complete? res)})]
+                  (when new-known
+                    (session/merge-known! token scenario-id new-known))
+                  (when event
+                    (session/record-event! token {:type     :teammate
+                                                  :scenario scenario-id
+                                                  :message  event})))))))))))
 
 (defn receive-pack
   "Accept a push, then evaluate it. The :before-push puppeteering hook fires
@@ -108,7 +113,6 @@
   pre-receive hook narrates why."
   [^Repository repo token scenario-id req]
   (let [ambushed? (boolean (session/puppeteer! token scenario-id :before-push))
-        {:keys [known]} (session/repo-for! token scenario-id)
         out (ByteArrayOutputStream.)
         rp  (doto (ReceivePack. repo)
               (.setBiDirectionalPipe false)
@@ -121,6 +125,6 @@
                      (.sendMessage ^ReceivePack rp
                                    "⚡ Someone pushed to this repository while you were working, so your push is based on a stale view of it. Pull their commit and push again.")
                      (.sendMessage ^ReceivePack rp "")))))
-              (.setPostReceiveHook (evaluating-hook token scenario-id known)))]
+              (.setPostReceiveHook (evaluating-hook token scenario-id ambushed?)))]
     (.receive rp (request-body req) out nil)
     (pkt-response out "application/x-git-receive-pack-result")))

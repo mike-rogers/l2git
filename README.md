@@ -93,7 +93,7 @@ regenerated origin is deterministic, and itself a reset lesson.
 - [ ] Scenario curriculum: tagging → rebase, squash, amend-author →
   bad merge, lost commit + reflog rescue, force-push regret, bisect →
   `rebase --onto` after squash-merge, forks & upstream (two remotes/session)
-- [ ] Multi-step scenarios (ordered goals within one lesson) + hints
+- [x] Multi-step scenarios (ordered steps with cascading progress) + hint ladders
 - [ ] Prerequisites/gating between scenarios (pinned product decision)
 - [ ] Session persistence (regenerate repos from metadata) + hosted deploy
 - [ ] Advanced: git-lfs scenario (needs an LFS batch-API endpoint beside the
