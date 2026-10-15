@@ -93,6 +93,26 @@ main { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px
 }
 .clone-url button:hover { border-color: var(--accent); color: var(--accent); }
 
+.tree .tree-group { margin-bottom: 10px; }
+.tree .tree-group:last-child { margin-bottom: 0; }
+.tree-root {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--muted); margin: 6px 0 4px;
+}
+.tree-leaf {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  text-align: left; border: none; background: none; color: var(--text);
+  font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 8px;
+  cursor: pointer;
+}
+.tree-leaf:hover { background: var(--pill-bg); }
+.tree-leaf.selected { background: var(--pill-bg); font-weight: 600; }
+.tree-leaf.soon { cursor: default; font-style: italic; font-size: 13px; padding: 2px 8px; }
+.tree-leaf .glyph { width: 14px; text-align: center; }
+.tree-leaf .glyph.complete { color: var(--pass); }
+.tree-leaf .glyph.in-progress { color: var(--accent); }
+.tree-leaf .glyph.not-started { color: var(--muted); }
+
 .events { list-style: none; margin: 0; padding: 0; }
 .events li {
   display: flex; justify-content: space-between; gap: 10px;
@@ -101,6 +121,7 @@ main { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px
 .events li:last-child { border-bottom: none; }
 .events li.pass { color: var(--pass); }
 .events li.fail { color: var(--fail); }
+.events .teammate { color: var(--lane-1); }
 .events time { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
 .muted { color: var(--muted); }

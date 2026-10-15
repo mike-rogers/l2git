@@ -12,6 +12,10 @@
            [java.time Instant]))
 
 (def curator ["The Curator" "curator@l2git.example"])
+(def pat ["Pat" "pat@l2git.example"])
+
+(def welcome-text "Welcome to l2git!\n")
+(def pat-notes-text "- fix the flaky login test\n- review Sam's PR\n")
 
 (defn- blob-text
   "Content of `path` in the commit's tree, or nil if absent."
@@ -27,9 +31,33 @@
   [^Repository repo branch]
   (some-> (.exactRef repo (str "refs/heads/" branch)) (.getObjectId)))
 
+(defn- reachable?
+  "Is the commit with this hash an ancestor of (or equal to) the branch tip?"
+  [^Repository repo ^String hash branch]
+  (boolean
+   (when-let [t (tip repo branch)]
+     (with-open [rw (RevWalk. repo)]
+       (.isMergedInto rw
+                      (.parseCommit rw (ObjectId/fromString hash))
+                      (.parseCommit rw t))))))
+
+(defn- files-at
+  "Flat {path content} snapshot of a commit's tree."
+  [^Repository repo ^ObjectId commit]
+  (with-open [rw (RevWalk. repo)
+              tw (TreeWalk. repo)]
+    (.addTree tw (.getTree (.parseCommit rw commit)))
+    (.setRecursive tw true)
+    (loop [m {}]
+      (if (.next tw)
+        (recur (assoc m (.getPathString tw)
+                      (String. (.getBytes (.open repo (.getObjectId tw 0))) "UTF-8")))
+        m))))
+
 (def catalog
   [{:id "add-readme"
     :title "Your first push"
+    :level :basic
     :instructions
     (str "Clone this repository, create a README.md with something in it, "
          "commit it on main, and push. Leave welcome.txt alone — it was "
@@ -71,6 +99,87 @@
 
                 :else
                 {:pass? true
-                 :message "README.md received. That's a clone, a commit, and a push — the whole loop. Well done."}))))))}])
+                 :message "README.md received. That's a clone, a commit, and a push — the whole loop. Well done."}))))))}
+
+   {:id "teammate-pull"
+    :title "A teammate pushed first"
+    :level :basic
+    :instructions
+    (str "Clone this repository — but you're not alone in it. Your teammate "
+         "Pat is about to push a commit. Create standup.md with a line about "
+         "what you're working on, commit it on main, and push. If git refuses "
+         "your push, that's the lesson: the remote moved while you worked. "
+         "Fetch Pat's commit and integrate it (git pull, or fetch then "
+         "merge/rebase), then push again. Whatever you do, don't force-push "
+         "over Pat.")
+    :setup
+    (fn [repo ^Instant created-at]
+      (let [c1 (rg/commit! repo {:files   {"welcome.txt" welcome-text}
+                                 :message "Set up the project\n"
+                                 :author  curator
+                                 :when    (.minusSeconds created-at 7200)})]
+        {:seed-commit (ObjectId/toString c1)}))
+    :after-fetch
+    (fn [repo known]
+      ;; Pat strikes the moment the learner first fetches. Idempotent: only
+      ;; once per session.
+      (when-not (:teammate-commit known)
+        (let [c (rg/commit! repo {:files   {"welcome.txt"  welcome-text
+                                            "pat-notes.md" pat-notes-text}
+                                  :message "Add my sprint notes\n"
+                                  :author  pat
+                                  :when    (Instant/now)})]
+          {:teammate-commit (ObjectId/toString c)})))
+    :after-evaluate
+    ;; If the learner force-pushed Pat's commit out of main, it's no longer
+    ;; reachable from any ref — a plain fetch can't rescue it, so the lesson
+    ;; would dead-end. Instead, Pat notices and pushes his notes again on
+    ;; top of whatever the learner left, and the lesson resumes.
+    (fn [repo known {:keys [pass?]}]
+      (when (and (not pass?)
+                 (:teammate-commit known)
+                 (tip repo "main")
+                 (not (reachable? repo (:teammate-commit known) "main")))
+        (let [files (assoc (files-at repo (tip repo "main"))
+                           "pat-notes.md" pat-notes-text)
+              c     (rg/commit! repo {:files   files
+                                      :message "Restore my sprint notes\n"
+                                      :author  pat
+                                      :when    (Instant/now)})]
+          {:known {:teammate-commit (ObjectId/toString c)}
+           :event {:type    :teammate
+                   :message "Pat noticed his commit vanished and pushed his notes again — pull before continuing"}})))
+    :evaluate
+    (fn [^Repository repo known]
+      (let [main (tip repo "main")]
+        (if-not main
+          {:pass? false :message "I don't see a main branch yet."}
+          (with-open [rw (RevWalk. repo)]
+            (let [tip-c   (.parseCommit rw main)
+                  reach?  (fn [hash]
+                            (and hash
+                                 (.isMergedInto rw (.parseCommit rw (ObjectId/fromString hash)) tip-c)))
+                  standup (blob-text repo main "standup.md")
+                  pat-md  (blob-text repo main "pat-notes.md")]
+              (cond
+                (not (reach? (:teammate-commit known)))
+                {:pass? false
+                 :message "Pat's commit is missing from main — did you force-push over it? That's exactly how teammates lose work. Pat is pushing his notes again: pull, then push without force."}
+
+                (nil? standup)
+                {:pass? false
+                 :message "Pat's work made it, but I don't see your standup.md yet."}
+
+                (clojure.string/blank? standup)
+                {:pass? false
+                 :message "standup.md is there but empty — write a line about what you're working on."}
+
+                (nil? pat-md)
+                {:pass? false
+                 :message "Pat's file (pat-notes.md) went missing during your integration. Merge or rebase again, keeping Pat's changes."}
+
+                :else
+                {:pass? true
+                 :message "Both your commit and Pat's live on main. You just survived your first diverged history — merge or rebase, either was right."}))))))}])
 
 (def by-id (into {} (map (juxt :id identity)) catalog))

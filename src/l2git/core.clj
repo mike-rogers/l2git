@@ -42,9 +42,10 @@
   [token]
   (when-let [s (session/status token)]
     (assoc s :scenarios
-           (mapv (fn [{:keys [id title instructions]}]
+           (mapv (fn [{:keys [id title instructions level]}]
                    {:id           id
                     :title        title
+                    :level        (name level)
                     :instructions instructions
                     :clone-url    (clone-url token id)
                     :status       (get-in s [:scenarios id :status] "not-started")})

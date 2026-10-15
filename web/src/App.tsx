@@ -1,7 +1,57 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createSession, eventStream, getGraph, getSession } from "./api";
 import Graph from "./Graph";
-import type { Graph as GraphData, Scenario, Session, SessionEvent } from "./types";
+import type { Graph as GraphData, Level, Scenario, Session, SessionEvent } from "./types";
+
+const LEVELS: { level: Level; label: string }[] = [
+  { level: "basic", label: "Basic" },
+  { level: "intermediate", label: "Intermediate" },
+  { level: "advanced", label: "Advanced" },
+];
+
+function statusGlyph(status: Scenario["status"]): string {
+  if (status === "complete") return "✓";
+  if (status === "in-progress") return "●";
+  return "○";
+}
+
+function ScenarioTree({
+  scenarios,
+  selectedId,
+  onSelect,
+}: {
+  scenarios: Scenario[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <nav className="card tree">
+      <h3>Scenarios</h3>
+      {LEVELS.map(({ level, label }) => {
+        const group = scenarios.filter((s) => s.level === level);
+        return (
+          <div key={level} className="tree-group">
+            <div className="tree-root">{label}</div>
+            {group.length === 0 ? (
+              <div className="tree-leaf muted soon">coming soon</div>
+            ) : (
+              group.map((s) => (
+                <button
+                  key={s.id}
+                  className={`tree-leaf ${s.status}${s.id === selectedId ? " selected" : ""}`}
+                  onClick={() => onSelect(s.id)}
+                >
+                  <span className={`glyph ${s.status}`}>{statusGlyph(s.status)}</span>
+                  {s.title}
+                </button>
+              ))
+            )}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
 
 /** Token lives in the URL (?token=…) so a bookmark restores the session. */
 function tokenFromUrl(): string | null {
@@ -61,6 +111,8 @@ function EventLog({ events }: { events: SessionEvent[] }) {
             <li key={`${e.at}-${i}`} className={e["pass?"] === false ? "fail" : e["pass?"] ? "pass" : ""}>
               {e.type === "fetch" ? (
                 <span>⇣ repository fetched</span>
+              ) : e.type === "teammate" ? (
+                <span className="teammate">⇡ {e.message}</span>
               ) : (
                 <span>
                   {e["pass?"] ? "✓" : "✗"} {e.message}
@@ -79,10 +131,13 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // null = auto mode: follow the first incomplete scenario (the original
+  // tool's "progress to the next scenario on success"); a click pins one.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
-  // Current scenario: first not complete, else the last one.
   const current: Scenario | undefined =
+    session?.scenarios.find((s) => s.id === selectedId) ??
     session?.scenarios.find((s) => s.status !== "complete") ??
     session?.scenarios[session.scenarios.length - 1];
 
@@ -134,6 +189,11 @@ export default function App() {
       </header>
       <main>
         <div className="side">
+          <ScenarioTree
+            scenarios={session.scenarios}
+            selectedId={current.id}
+            onSelect={setSelectedId}
+          />
           <ScenarioCard scenario={current} />
           <EventLog events={session.events} />
         </div>

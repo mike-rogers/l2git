@@ -76,6 +76,44 @@
   [token scenario-id]
   (swap! sessions assoc-in [token :scenarios scenario-id :status] :complete))
 
+(defn evaluate-quietly!
+  "Evaluate the scenario's current repo state outside a push (e.g. after a
+  fetch). Records and completes only on a pass — a fetch of unfinished work
+  earns no noisy failure. Covers flows where the goal state is reached by
+  pulling rather than pushing (e.g. a teammate restoring clobbered work)."
+  [token scenario-id]
+  (when-let [{:keys [repo known status]} (get-in @sessions [token :scenarios scenario-id])]
+    (when (not= :complete status)
+      (let [{:keys [pass? message]} ((:evaluate (scenarios/by-id scenario-id)) repo known)]
+        (when pass?
+          (record-event! token {:type     :evaluation
+                                :scenario scenario-id
+                                :pass?    true
+                                :message  message})
+          (swap! sessions assoc-in [token :scenarios scenario-id :status] :complete))))))
+
+(defn merge-known!
+  "Merge new entries into a scenario's known map."
+  [token scenario-id new-known]
+  (swap! sessions update-in [token :scenarios scenario-id :known] merge new-known))
+
+(defn after-fetch!
+  "Run the scenario's :after-fetch hook, if any — the puppeteering point
+  where 'teammates' get to touch the origin once the learner has fetched.
+  The hook is (fn [repo known]) -> map of new known entries, or nil for
+  no-op; idempotency is the hook's job (check its own known key). Returned
+  entries merge into the session's known map. Emits an event when the hook
+  acted, so the UI sees the teammate move live."
+  [token scenario-id]
+  (when-let [hook (:after-fetch (scenarios/by-id scenario-id))]
+    (locking sessions
+      (when-let [{:keys [repo known]} (get-in @sessions [token :scenarios scenario-id])]
+        (when-let [new-known (hook repo known)]
+          (merge-known! token scenario-id new-known)
+          (record-event! token {:type     :teammate
+                                :scenario scenario-id
+                                :message  "Pat pushed a commit to main"}))))))
+
 (defn status
   "JSON-safe view of a session."
   [token]

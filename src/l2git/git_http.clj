@@ -14,7 +14,8 @@
             [l2git.session :as session])
   (:import [org.eclipse.jgit.lib Repository]
            [org.eclipse.jgit.transport UploadPack ReceivePack PostReceiveHook
-            PacketLineOut RefAdvertiser$PacketLineOutRefAdvertiser]
+            PacketLineOut ReceiveCommand ReceiveCommand$Result
+            RefAdvertiser$PacketLineOutRefAdvertiser]
            [java.io ByteArrayInputStream ByteArrayOutputStream InputStream]
            [java.util.zip GZIPInputStream]))
 
@@ -56,6 +57,8 @@
               (.setBiDirectionalPipe false))]
     (.upload up (request-body req) out nil)
     (session/record-event! token {:type :fetch :scenario scenario-id})
+    (session/after-fetch! token scenario-id)
+    (session/evaluate-quietly! token scenario-id)
     (pkt-response out "application/x-git-upload-pack-result")))
 
 (defn- evaluating-hook
@@ -63,19 +66,35 @@
   user's terminal via 'remote:' sideband messages."
   ^PostReceiveHook [token scenario-id known]
   (reify PostReceiveHook
-    (onPostReceive [_ rp _commands]
-      (let [scenario (scenarios/by-id scenario-id)
-            repo     (.getRepository ^ReceivePack rp)
-            {:keys [pass? message]} ((:evaluate scenario) repo known)]
-        (session/record-event! token {:type     :evaluation
-                                      :scenario scenario-id
-                                      :pass?    pass?
-                                      :message  message})
-        (when pass?
-          (session/complete! token scenario-id))
-        (.sendMessage ^ReceivePack rp "")
-        (.sendMessage ^ReceivePack rp (str (if pass? "✓ " "✗ ") message))
-        (.sendMessage ^ReceivePack rp "")))))
+    (onPostReceive [_ rp commands]
+      ;; Only evaluate when at least one ref actually moved — a fully
+      ;; rejected push shouldn't earn confusing evaluator feedback on top
+      ;; of git's own rejection.
+      (when (some #(= ReceiveCommand$Result/OK (.getResult ^ReceiveCommand %))
+                  commands)
+        (let [scenario (scenarios/by-id scenario-id)
+              repo     (.getRepository ^ReceivePack rp)
+              ;; re-read known: an :after-fetch hook may have added to it
+              known    (or (:known (session/repo-for! token scenario-id)) known)
+              {:keys [pass? message]} ((:evaluate scenario) repo known)]
+          (session/record-event! token {:type     :evaluation
+                                        :scenario scenario-id
+                                        :pass?    pass?
+                                        :message  message})
+          (when pass?
+            (session/complete! token scenario-id))
+          (.sendMessage ^ReceivePack rp "")
+          (.sendMessage ^ReceivePack rp (str (if pass? "✓ " "✗ ") message))
+          (.sendMessage ^ReceivePack rp "")
+          ;; Give the scenario a chance to react to the outcome (e.g. a
+          ;; teammate restoring work the learner force-pushed away).
+          (when-let [hook (:after-evaluate scenario)]
+            (when-let [{:keys [known event]}
+                       (hook repo known {:pass? pass? :message message})]
+              (when known
+                (session/merge-known! token scenario-id known))
+              (when event
+                (session/record-event! token (assoc event :scenario scenario-id))))))))))
 
 (defn receive-pack
   "Accept a push, then evaluate it."

@@ -19,16 +19,19 @@ export interface Graph {
   head: string | null;
 }
 
+export type Level = "basic" | "intermediate" | "advanced";
+
 export interface Scenario {
   id: string;
   title: string;
+  level: Level;
   instructions: string;
   "clone-url": string;
   status: "not-started" | "in-progress" | "complete";
 }
 
 export interface SessionEvent {
-  type: "fetch" | "evaluation";
+  type: "fetch" | "evaluation" | "teammate";
   scenario: string;
   at: string;
   "pass?"?: boolean;
