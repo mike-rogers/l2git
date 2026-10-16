@@ -181,7 +181,13 @@
           :else
           (json-response 404 {:error "not found"}))
         (or (static-file uri)
-            {:status 404 :body "not found"}))
+            (if (= uri "/")
+              {:status  200
+               :headers {"Content-Type" "text/plain"}
+               :body    (str "l2git is running, but the frontend isn't built yet.\n"
+                             "Run: cd web && npm install && npm run build\n"
+                             "then reload. (API is live: POST /api/session)\n")}
+              {:status 404 :body "not found"})))
 
       :else
       {:status 404 :body "not found"})))
