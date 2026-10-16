@@ -1,0 +1,81 @@
+{:id "rebase-before-merge"
+ :title "Rebase before you merge"
+ :level :intermediate
+ :instructions
+ "You (well, Past You) have been working on feature/login, and it's ready to land. But while you worked, Pat pushed to main — your branch and main have diverged. This team keeps history linear: rebase your branch onto main first, then merge. Clone the repo and have a look around with git log --all --graph."
+
+ :setup
+ {:commits [{:name    :seed
+             :branch  "main"
+             :author  :curator
+             :when    [:hours-before 8]
+             :message "Set up the project\n"
+             :files   {"welcome.txt" "Welcome to l2git!\n"}}
+            {:name    :feat-1
+             :branch  "feature/login"
+             :parent  :seed
+             :author  :you
+             :when    [:hours-before 6]
+             :message "Add login form\n"
+             :files   {"welcome.txt" "Welcome to l2git!\n"
+                       "login.md"    "# Login\n\nA form with a username and a password field.\n"}}
+            {:name    :feat-2
+             :branch  "feature/login"
+             :author  :you
+             :when    [:hours-before 5]
+             :message "Add login validation notes\n"
+             :files   {"welcome.txt" "Welcome to l2git!\n"
+                       "login.md"    "# Login\n\nA form with a username and a password field.\nReject empty passwords before submitting.\n"}}
+            {:name    :pat-1
+             :branch  "main"
+             :author  :pat
+             :when    [:hours-before 2]
+             :message "Start the roadmap\n"
+             :files   {"welcome.txt" "Welcome to l2git!\n"
+                       "roadmap.md"  "# Roadmap\n\n- Q1: login\n"}}
+            {:name    :pat-2
+             :branch  "main"
+             :author  :pat
+             :when    [:minutes-before 40]
+             :message "Add Q2 to the roadmap\n"
+             :files   {"welcome.txt" "Welcome to l2git!\n"
+                       "roadmap.md"  "# Roadmap\n\n- Q1: login\n- Q2: billing\n"}}]}
+
+ :steps
+ [{:id :rebase-branch
+   :title "Rebase your branch onto main"
+   :instructions
+   "Replay your branch's commits on top of Pat's latest main (git switch feature/login, then git rebase main), and push the rebased branch. Rebasing rewrote your commits, so the push needs force — and that's fine here: it's your branch, nobody builds on it. Use git push --force-with-lease origin feature/login."
+   :hints
+   ["Rebase means: pick my branch's commits up and replay them on top of somewhere new. The somewhere is main."
+    "git switch feature/login · git rebase main · git push --force-with-lease origin feature/login"
+    "The rebase re-creates your two commits with new hashes — same changes, new parents — which is why a plain push is refused: the branch's history was rewritten. --force-with-lease overwrites the remote branch, but only if nobody else pushed to it meanwhile. That's the safe way to force-push, and your own feature branch is the right place to do it. Shared branches like main are not."]
+   :checks [{:cond [:branch-exists "feature/login"]
+             :fail "feature/login went missing from the remote — don't delete it, rebase it and force-push it."}
+            {:cond [:reachable :pat-2 "feature/login"]
+             :fail "The remote's feature/login doesn't sit on top of Pat's latest main yet. Rebase it (git switch feature/login, git rebase main), then push it with git push --force-with-lease origin feature/login."}
+            {:cond [:not [:reachable :feat-1 "feature/login"]]
+             :fail "I still see the original branch commits in feature/login's history — a rebase rewrites them into new ones. If you merged main into your branch instead, back that out (git reflog shows where you were) and rebase."}
+            {:cond [:file-nonblank "feature/login" "login.md"]
+             :fail "login.md went missing from the branch during the rebase — your changes should survive the replay."}]
+   :pass "Rebased and force-pushed. Your commits were rewritten on top of Pat's work — same changes, new hashes, straight line. And that force-push was fine: your branch, your rules."}
+
+  {:id :merge-to-main
+   :title "Land it on main"
+   :instructions
+   "Now that your branch sits on top of main, landing it is easy: switch to main, merge feature/login (it fast-forwards), and push main. No force anywhere near main."
+   :hints
+   ["After a rebase, your branch contains main's history plus your commits — so merging into main is just sliding the label up."
+    "git switch main · git merge feature/login · git push origin main"
+    "This is why teams rebase first: the merge becomes a fast-forward, main's history stays a single straight line, and the push is an ordinary one. The only force-push in this whole flow happened on your own branch."]
+   :checks [{:cond [:reachable :pat-2 "main"]
+             :fail "Pat's commits vanished from main — never force-push the shared branch. Pull main back (git fetch, then reset to origin, or merge his work back in) and land your branch on top of it."}
+            {:cond [:branch-merged "feature/login" "main"]
+             :fail "main doesn't contain your rebased branch yet — switch to main, git merge feature/login, and push main."}
+            {:cond [:not [:reachable :feat-1 "main"]]
+             :fail "The original pre-rebase commits made it into main — that means a merge snuck in where a rebase belonged. Reset main back to origin, rebase the branch, and land the rebased version."}
+            {:cond [:file-nonblank "main" "login.md"]
+             :fail "login.md didn't make it onto main."}
+            {:cond [:file-nonblank "main" "roadmap.md"]
+             :fail "Pat's roadmap.md went missing from main — his work and yours should both survive."}]
+   :pass "main now carries Pat's work and yours in one straight line. That's the whole flow: rewrite your own branch freely, never the shared one."}]}

@@ -2,7 +2,7 @@
  :title "Work on a branch"
  :level :basic
  :instructions
- "Clone this repository, then do your work on a branch instead of main: create a branch named feature/greeting, add a greeting.txt with a friendly line in it, commit it on that branch, and push the branch to the remote (git push -u origin feature/greeting). The whole point of a branch is that main stays exactly where it was — so leave main alone."
+ "Clone this repository and do your work the way teams do: on a branch, in two beats. First build your change on a branch and push it; once it's confirmed, land it on main."
 
  :setup
  {:commits [{:name    :seed
@@ -14,6 +14,9 @@
 
  :steps
  [{:id :push-branch
+   :title "Push your branch"
+   :instructions
+   "Create a branch named feature/greeting, add a greeting.txt with a friendly line in it, commit it on that branch, and push the branch (git push -u origin feature/greeting). Main stays exactly where it is — that's the whole point."
    :hints
    ["A branch is just a movable label. Make a new one, commit while standing on it, and push that label to the remote."
     "git switch -c feature/greeting, create greeting.txt, git add + commit, then git push -u origin feature/greeting"
@@ -21,7 +24,7 @@
    :checks [{:cond [:branch-exists "main"]
              :fail "main went missing — it should still exist, untouched."}
             {:cond [:tip-is :seed "main"]
-             :fail "main moved — your commit should live on feature/greeting, not on main. Put the work on the branch (git branch feature/greeting before you reset anything, so the commit isn't lost), or use the reset button and start fresh."}
+             :fail "main moved before your branch stood on its own. If you committed straight to main, put the work on a branch (git branch feature/greeting first, so the commit isn't lost). If you already merged, this lesson wants the two beats separately — use the reset button and do the dance: push the branch, then land it."}
             {:cond [:branch-exists "feature/greeting"]
              :fail "I don't see a feature/greeting branch on the remote yet. Create it locally (git switch -c feature/greeting), commit there, and push it with: git push -u origin feature/greeting"}
             {:cond [:reachable :seed "feature/greeting"]
@@ -30,4 +33,20 @@
              :fail "The branch is here, but it doesn't contain a greeting.txt yet."}
             {:cond [:file-nonblank "feature/greeting" "greeting.txt"]
              :fail "greeting.txt is there but empty — give it a friendly line."}]
-   :pass "feature/greeting is on the remote with your commit, and main never moved. That's the whole trick: branches are just labels, and the work went on yours."}]}
+   :pass "feature/greeting is on the remote with your commit, and main never moved. Branches are just labels, and the work went on yours."}
+
+  {:id :merge-to-main
+   :title "Land it on main"
+   :instructions
+   "Your branch is in. Now land it: switch to main, merge feature/greeting into it, and push main."
+   :hints
+   ["Merging pulls another branch's commits into the one you're standing on — so stand on main first."
+    "git switch main, then git merge feature/greeting, then git push origin main"
+    "Because main never moved while you worked, this merge is a fast-forward: git doesn't create a new commit, it just slides the main label up to your branch's tip. When both sides have moved, you get a real merge commit instead — that's a later lesson."]
+   :checks [{:cond [:branch-merged "feature/greeting" "main"]
+             :fail "main doesn't contain your branch yet — switch to main, git merge feature/greeting, and push main."}
+            {:cond [:file-nonblank "main" "greeting.txt"]
+             :fail "greeting.txt didn't survive the merge onto main — merge feature/greeting again."}
+            {:cond [:file-equals "main" "welcome.txt" "Welcome to l2git!\n"]
+             :fail "welcome.txt was changed or removed along the way — it should survive untouched."}]
+   :pass "Merged and pushed — the main label slid up to your work (a fast-forward). Branch, build, land: that's the loop you'll use forever."}]}

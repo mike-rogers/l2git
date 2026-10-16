@@ -30,6 +30,7 @@
     [:branch-exists branch]
     [:reachable name branch]         named commit is ancestor-or-equal of tip
     [:tip-is name branch]            branch tip IS the named commit (untouched)
+    [:branch-merged src dst]         src's tip is ancestor-or-equal of dst's tip
     [:file-exists branch path]
     [:file-nonblank branch path]
     [:file-equals branch path text]
@@ -47,7 +48,8 @@
 
 (def people
   {:curator ["The Curator" "curator@l2git.example"]
-   :pat     ["Pat" "pat@l2git.example"]})
+   :pat     ["Pat" "pat@l2git.example"]
+   :you     ["Past You" "you@l2git.example"]})
 
 ;; ------------------------------------------------------- repo inspection
 
@@ -120,7 +122,14 @@
                                       :author  (or (people (:author spec))
                                                    (throw (ex-info "unknown author" {:spec spec})))
                                       :when    (resolve-when (:when spec) created-at)
-                                      :files   (resolve-files (:files spec) repo)})]
+                                      :files   (resolve-files (:files spec) repo)
+                                      ;; :parent names an earlier commit, for
+                                      ;; starting a branch off it while its
+                                      ;; own branch advances
+                                      :parents (when-let [p (:parent spec)]
+                                                 [(ObjectId/fromString
+                                                   (or (get known p)
+                                                       (throw (ex-info "unknown :parent" {:spec spec}))))])})]
               (if-let [n (:name spec)]
                 (assoc known n (ObjectId/toString c))
                 known)))
@@ -145,6 +154,12 @@
       :tip-is        (let [[_ n branch] form]
                        (boolean (when-let [h (get known n)]
                                   (= h (some-> (tip repo branch) (ObjectId/toString))))))
+      :branch-merged (let [[_ src dst] form]
+                       (boolean
+                        (when-let [s (tip repo src)]
+                          (when-let [d (tip repo dst)]
+                            (with-open [rw (RevWalk. repo)]
+                              (.isMergedInto rw (.parseCommit rw s) (.parseCommit rw d)))))))
       :file-exists   (let [[_ branch path] form]
                        (some? (branch-file repo branch path)))
       :file-nonblank (let [[_ branch path] form]
