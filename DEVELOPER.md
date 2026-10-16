@@ -24,6 +24,14 @@ from how you reached the server, so a different port mapping
 The container path is for *using and testing* l2git. For working on its
 code, a local toolchain (below) gives you fast restarts and hot reload.
 
+Two gotchas for Homebrew + colima setups (Docker Desktop and WSL's
+docker.io package are unaffected): brew's `docker-compose` must be linked
+before `docker compose` (as a subcommand) works —
+`mkdir -p ~/.docker/cli-plugins && ln -sfn $(brew --prefix)/opt/docker-compose/bin/docker-compose ~/.docker/cli-plugins/docker-compose`
+— and if an old Docker Desktop left `"credsStore": "desktop"` in
+`~/.docker/config.json`, builds fail with `docker-credential-desktop:
+executable file not found`; delete that line.
+
 ## Prerequisites
 
 | Tool | Version | Notes |
