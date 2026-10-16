@@ -1,0 +1,5 @@
+services:
+  l2git:
+    build: .
+    ports:
+      - "8070:8070"

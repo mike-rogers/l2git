@@ -1,0 +1,13 @@
+.git
+.cpcache
+.clj-kondo
+.lsp
+.idea
+*.iml
+*.log
+.DS_Store
+web/node_modules
+web/dist
+web/tsconfig.tsbuildinfo
+Dockerfile
+compose.yaml

@@ -5,6 +5,25 @@ Everything here works on macOS, Linux, and Windows. The backend is Clojure
 disk at runtime — scenario repositories live in memory — so there's no
 database or state to set up.
 
+## Fastest path: a container
+
+If you have any Docker-compatible runtime (Docker Desktop, Docker in WSL2,
+podman, colima), you need nothing else — not Java, not Clojure, not Node:
+
+```sh
+docker compose up --build        # or: docker build -t l2git . && docker run --rm -p 8070:8070 l2git
+```
+
+Then open <http://localhost:8070> and skip straight to
+[the exploratory-testing loop](#the-exploratory-testing-loop). The image
+builds the frontend and warms the backend's dependency cache, so the first
+build takes a few minutes and later ones are quick. Clone URLs are derived
+from how you reached the server, so a different port mapping
+(`-p 9000:8070`) or crossing the WSL boundary both just work.
+
+The container path is for *using and testing* l2git. For working on its
+code, a local toolchain (below) gives you fast restarts and hot reload.
+
 ## Prerequisites
 
 | Tool | Version | Notes |

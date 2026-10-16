@@ -33,14 +33,20 @@
 
 ;; ---------------------------------------------------------------- sessions
 
-(defn- clone-url [token scenario-id]
-  (str "http://localhost:" port "/r/" token "/" scenario-id ".git"))
+(defn- request-host
+  "The host:port the client used to reach us — clone URLs must be built from
+  it, or containers/port-mappings/LAN access would hand out broken commands."
+  [req]
+  (get-in req [:headers "host"] (str "localhost:" port)))
+
+(defn- clone-url [host token scenario-id]
+  (str "http://" host "/r/" token "/" scenario-id ".git"))
 
 (defn- session-payload
   "Everything the frontend needs to (re)hydrate a session: the scenario
   catalog with per-session clone URLs, statuses, and step progress, plus
   the event log."
-  [token]
+  [token host]
   (when-let [s (session/status token)]
     (assoc s :scenarios
            (mapv (fn [{:keys [id title instructions level steps]}]
@@ -51,7 +57,7 @@
                       :title        title
                       :level        (name level)
                       :instructions instructions
-                      :clone-url    (clone-url token id)
+                      :clone-url    (clone-url host token id)
                       :status       status
                       :current-step step-idx
                       :steps        (vec (map-indexed
@@ -148,7 +154,7 @@
         (handle-git req token scenario-id tail))
 
       (and (= :post method) (= uri "/api/session"))
-      (json-response (session-payload (:token (session/create!))))
+      (json-response (session-payload (:token (session/create!)) (request-host req)))
 
       (and (= :post method)
            (re-matches #"^/api/session/([a-z0-9]+)/reset/([a-z0-9-]+)$" uri))
@@ -158,7 +164,7 @@
           (nil? (session/lookup token))        (json-response 404 {:error "unknown session"})
           (nil? (scenarios/by-id scenario-id)) (json-response 404 {:error "unknown scenario"})
           :else (do (session/reset-scenario! token scenario-id)
-                    (json-response (session-payload token)))))
+                    (json-response (session-payload token (request-host req))))))
 
       (= :get method)
       (if-let [[_ token sub scenario-id]
@@ -168,7 +174,7 @@
           (json-response 404 {:error "unknown session"})
 
           (nil? sub)
-          (json-response (session-payload token))
+          (json-response (session-payload token (request-host req)))
 
           (= sub "events")
           (sse-events token)
