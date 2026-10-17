@@ -13,11 +13,13 @@
              :files   {"welcome.txt" "Welcome to l2git!\n"}}]}
 
  ;; Pat lands in the gap between the learner's last fetch and their push:
- ;; the hook fires on the ref advertisement that starts their first push
- ;; attempt, so their own client rejects with "fetch first". (Triggering on
- ;; fetch instead would let clone-then-pull collect Pat's commit before any
- ;; work exists, bypassing the divergence entirely.) :once makes the hook
- ;; idempotent: it is skipped when the named commit already exists.
+ ;; the hook fires in the server's pre-receive stage, only when a pushed
+ ;; command targets :branch, and the push is rejected with an authored
+ ;; "fetch first" reason. (Triggering on fetch instead would let
+ ;; clone-then-pull collect Pat's commit before any work exists, bypassing
+ ;; the divergence entirely; triggering on the ref advertisement fired on
+ ;; empty and side-branch pushes.) :once makes the hook idempotent: it is
+ ;; skipped when the named commit already exists.
  :before-push
  {:branch  "main"
   :once    :pat-1

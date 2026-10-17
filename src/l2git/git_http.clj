@@ -110,8 +110,10 @@
   from the pre-receive hook, and only when the push actually targets the
   hook's branch — pushes elsewhere can't summon the teammate, and a POST
   only happens when the client has real updates, so empty pushes can't
-  either. The injected commit makes the targeted ref update fail its lock
-  check, so the colliding push is rejected; the hook narrates why."
+  either. The hook rejects the colliding command outright with an authored
+  reason — left to its own devices JGit would fail the update's lock check
+  and the learner would see a cryptic '(failed to lock)' instead of a
+  teachable '[remote rejected] … (fetch first — …)'."
   [^Repository repo token scenario-id req]
   (let [ambushed? (atom false)
         out (ByteArrayOutputStream.)
@@ -122,10 +124,14 @@
                (reify PreReceiveHook
                  (onPreReceive [_ rp commands]
                    (when-let [{:keys [branch]} (:before-push (scenarios/by-id scenario-id))]
-                     (let [target (str "refs/heads/" branch)]
-                       (when (and (some #(= target (.getRefName ^ReceiveCommand %)) commands)
+                     (let [target  (str "refs/heads/" branch)
+                           matched (filter #(= target (.getRefName ^ReceiveCommand %)) commands)]
+                       (when (and (seq matched)
                                   (session/puppeteer! token scenario-id :before-push))
                          (reset! ambushed? true)
+                         (doseq [^ReceiveCommand cmd matched]
+                           (.setResult cmd ReceiveCommand$Result/REJECTED_OTHER_REASON
+                                       "fetch first — the remote changed while you were working"))
                          (.sendMessage ^ReceivePack rp "")
                          (.sendMessage ^ReceivePack rp
                                        "⚡ Someone pushed to this repository while you were working, so your push is based on a stale view of it. Pull their commit and push again.")
