@@ -84,24 +84,35 @@
                      (assoc acc (.name oid) "blob"))))
           acc)))))
 
+(defn- closure
+  "sha -> type for every object reachable from the given commit tips."
+  [^Repository repo tips]
+  (with-open [rw (RevWalk. repo)]
+    (mark-starts rw tips)
+    (let [commits (vec (iterator-seq (.iterator rw)))
+          acc     (reduce (fn [acc ^RevCommit c] (assoc acc (.name c) "commit"))
+                          {} commits)]
+      (reduce (fn [acc ^RevCommit c] (tree-objects repo acc (.getTree c)))
+              acc commits))))
+
 (defn objects-at
   "Everything in the object database reachable from the given state — the
   live refs or a snapshot override, plus extra tips (a rejected push's
   objects are *in the store* from the moment they were transmitted, which
-  is the lesson). Returns [{:sha :otype}] sorted by sha, so the learner
-  sees the database the way git stores it: a flat, content-addressed
-  key space, not a hierarchy."
+  is the lesson). Returns [{:sha :otype :orphan}] sorted by sha, so the
+  learner sees the database the way git stores it: a flat,
+  content-addressed key space, not a hierarchy. :orphan marks objects no
+  branch reaches — and after a rebase, only the old commits and trees are
+  orphaned; the unchanged blobs stay shared with their rebased twins."
   [^Repository repo {:keys [refs-override extra-tips]}]
-  (let [ref-map (or refs-override (live-ref-map repo))
-        tips    (into (set (vals ref-map)) extra-tips)]
-    (with-open [rw (RevWalk. repo)]
-      (mark-starts rw tips)
-      (let [commits (vec (iterator-seq (.iterator rw)))
-            acc     (reduce (fn [acc ^RevCommit c] (assoc acc (.name c) "commit"))
-                            {} commits)
-            acc     (reduce (fn [acc ^RevCommit c] (tree-objects repo acc (.getTree c)))
-                            acc commits)]
-        (mapv (fn [[sha otype]] {:sha sha :otype otype}) (sort-by key acc))))))
+  (let [ref-map   (or refs-override (live-ref-map repo))
+        ref-tips  (set (vals ref-map))
+        all-tips  (into ref-tips extra-tips)
+        reachable (closure repo ref-tips)
+        full      (if (= all-tips ref-tips) reachable (closure repo all-tips))]
+    (mapv (fn [[sha otype]]
+            {:sha sha :otype otype :orphan (not (contains? reachable sha))})
+          (sort-by key full))))
 
 (defn- ident-info [^PersonIdent p]
   {:name  (.getName p)

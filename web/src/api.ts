@@ -43,6 +43,8 @@ export async function getGraph(token: string, scenario: string, opts?: GraphOpts
 export interface ObjectEntry {
   sha: string;
   otype: "commit" | "tree" | "blob";
+  /** No branch reaches this object at the selected moment. */
+  orphan: boolean;
 }
 
 export async function getObjects(

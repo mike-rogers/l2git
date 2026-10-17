@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { getObjects, type ObjectEntry } from "./api";
+import ObjectDetail from "./ObjectDetail";
 import { allGhosts, buildTimeline } from "./Timeline";
 import type { SessionEvent } from "./types";
 
@@ -47,6 +48,7 @@ export default function Inspector({
   const [wasAtEnd, setWasAtEnd] = useState(true);
   const [objects, setObjects] = useState<ObjectEntry[] | null>(null);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
+  const [highlightOrphans, setHighlightOrphans] = useState(false);
 
   // New events grow the timeline; stay pinned to "now" if that's where
   // the user was, otherwise hold their place.
@@ -66,7 +68,12 @@ export default function Inspector({
     let live = true;
     setObjects(null);
     getObjects(token, scenarioId, { refs: vp.refs, extra: vp.ghosts })
-      .then((o) => live && setObjects(o))
+      .then((o) => {
+        if (!live) return;
+        setObjects(o);
+        // An object selected at a later moment may not exist at this one.
+        setSelectedSha((s) => (s && !o.some((e) => e.sha === s) ? null : s));
+      })
       .catch(() => live && setObjects([]));
     return () => {
       live = false;
@@ -116,9 +123,11 @@ export default function Inspector({
                 {objects.map((o) => (
                   <li key={o.sha}>
                     <button
-                      className={`obj-row${selectedSha === o.sha ? " selected" : ""}`}
+                      className={`obj-row${selectedSha === o.sha ? " selected" : ""}${
+                        highlightOrphans && o.orphan ? " orphan-hl" : ""
+                      }`}
                       onClick={() => setSelectedSha(o.sha === selectedSha ? null : o.sha)}
-                      title={o.sha}
+                      title={o.orphan ? `${o.sha} — no branch reaches this` : o.sha}
                     >
                       <span className={`obj-icon ${o.otype}`}>{OTYPE_ICON[o.otype]}</span>
                       <code>{o.sha.slice(0, 7)}</code>
@@ -128,13 +137,32 @@ export default function Inspector({
                 ))}
               </ul>
             )}
+            <label className="obj-list-foot" title="Objects no branch reaches at this moment">
+              <input
+                type="checkbox"
+                checked={highlightOrphans}
+                onChange={(e) => setHighlightOrphans(e.target.checked)}
+              />
+              highlight orphans
+              {highlightOrphans && objects && (
+                <span className="muted"> · {objects.filter((o) => o.orphan).length}</span>
+              )}
+            </label>
           </aside>
-          <section className="obj-main">
-            <p className="muted">
-              {selectedSha
-                ? `object ${selectedSha.slice(0, 7)} — detail view coming soon`
-                : "every object the database holds at this moment, keyed by hash — pick a moment below, an object on the left"}
-            </p>
+          <section className={`obj-main${selectedSha ? "" : " empty"}`}>
+            {selectedSha ? (
+              <ObjectDetail
+                token={token}
+                scenario={scenarioId}
+                sha={selectedSha}
+                onSelect={setSelectedSha}
+              />
+            ) : (
+              <p className="muted">
+                every object the database holds at this moment, keyed by hash — pick a moment
+                below, an object on the left
+              </p>
+            )}
           </section>
         </div>
 
