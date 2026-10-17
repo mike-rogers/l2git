@@ -54,13 +54,26 @@ export default function ObjectDetail({
   onSelect: (sha: string) => void;
 }) {
   const [nodes, setNodes] = useState<Map<string, Node> | null>(null);
+  // Parent commits expanded into the view (the ▾ next to a parent chip).
+  // Their closures join the same node map, so objects shared with the
+  // selected commit CONVERGE — one card, two incoming edges. That
+  // convergence is the "commits reuse their parent's unchanged objects"
+  // lesson, drawn rather than told.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  useEffect(() => setExpanded(new Set()), [sha]);
 
   useEffect(() => {
     let live = true;
     setNodes(null);
     (async () => {
       const acc = new Map<string, Node>();
-      const queue: { sha: string; depth: number }[] = [{ sha, depth: 0 }];
+      const queue: { sha: string; depth: number }[] = [
+        { sha, depth: 0 },
+        // Root first: shared objects anchor at the positions the selected
+        // commit gave them; expanded parents' extras land below.
+        ...[...expanded].map((p) => ({ sha: p, depth: 0 })),
+      ];
       while (queue.length > 0 && acc.size < FETCH_CAP) {
         const { sha: s, depth } = queue.shift()!;
         if (acc.has(s)) continue; // BFS: first sight is the shallowest
@@ -76,33 +89,56 @@ export default function ObjectDetail({
     return () => {
       live = false;
     };
-  }, [token, scenario, sha]);
+  }, [token, scenario, sha, expanded]);
 
-  // Pointer edges: commit -> its tree, tree entry -> its object.
-  const edges: Edge[] = [];
+  // Everything the SELECTED commit's snapshot reaches; objects outside it
+  // (an expanded parent's superseded commit/tree/blobs) render desaturated.
+  const rootClosure = (() => {
+    const seen = new Set<string>();
+    if (!nodes) return seen;
+    const q = [sha];
+    while (q.length > 0) {
+      const s = q.pop()!;
+      if (seen.has(s)) continue;
+      const n = nodes.get(s);
+      if (!n) continue;
+      seen.add(s);
+      if (n.obj.type === "commit") q.push(n.obj.tree);
+      if (n.obj.type === "tree") for (const e of n.obj.entries) q.push(e.sha);
+    }
+    return seen;
+  })();
+
+  // Pointer edges: commit -> its tree, tree entry -> its object. Edges
+  // whose source is outside the root closure dim with their cards.
+  const edges: (Edge & { stale: boolean })[] = [];
   if (nodes)
     for (const [s, { obj }] of nodes) {
+      const stale = !rootClosure.has(s);
       if (obj.type === "commit" && nodes.has(obj.tree))
-        edges.push({ id: `${s}:tree`, to: obj.tree });
+        edges.push({ id: `${s}:tree`, to: obj.tree, stale });
       if (obj.type === "tree")
         for (const e of obj.entries)
-          if (nodes.has(e.sha)) edges.push({ id: `${s}:${e.name}`, to: e.sha });
+          if (nodes.has(e.sha)) edges.push({ id: `${s}:${e.name}`, to: e.sha, stale });
     }
 
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const srcRefs = useRef(new Map<string, HTMLElement | null>());
   const dstRefs = useRef(new Map<string, HTMLElement | null>());
-  const [paths, setPaths] = useState<{ key: string; d: string; color: string }[]>([]);
+  const [paths, setPaths] = useState<
+    { key: string; d: string; color: string; stale: boolean }[]
+  >([]);
 
   const measure = () => {
     const wrap = wrapRef.current;
     if (!wrap || !nodes) return;
     const wr = wrap.getBoundingClientRect();
-    const out: { key: string; d: string; color: string }[] = [];
+    const out: { key: string; d: string; color: string; stale: boolean }[] = [];
     for (const edge of edges) {
       const s = srcRefs.current.get(edge.id);
       const t = dstRefs.current.get(edge.to);
       if (!s || !t) continue;
+      const stale = edge.stale;
       const sr = s.getBoundingClientRect();
       const tr = t.getBoundingClientRect();
       const x1 = sr.right - wr.left + wrap.scrollLeft;
@@ -113,6 +149,7 @@ export default function ObjectDetail({
       out.push({
         key: edge.id,
         color: hueColor(edge.to),
+        stale,
         d: `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`,
       });
     }
@@ -135,7 +172,7 @@ export default function ObjectDetail({
   const card = (s: string, { obj }: Node) => (
     <div
       key={s}
-      className={`onode ${obj.type}`}
+      className={`onode ${obj.type}${rootClosure.has(s) ? "" : " stale"}`}
       style={{ borderColor: `hsl(${hashHue(s)} 55% 45% / 0.55)` }}
       ref={(el) => void dstRefs.current.set(s, el)}
     >
@@ -154,7 +191,27 @@ export default function ObjectDetail({
           {obj.parents.map((p, i) => (
             <div className="onode-row" key={p}>
               <span className="onode-k">{obj.parents.length > 1 ? `parent ${i + 1}` : "parent"}</span>
-              <Chip sha={p} onClick={onSelect} />
+              <span className="onode-parent">
+                <button
+                  className={`expand-parent${expanded.has(p) ? " open" : ""}`}
+                  title={
+                    expanded.has(p)
+                      ? "hide this parent's snapshot"
+                      : "show this parent's snapshot below — shared objects converge"
+                  }
+                  onClick={() =>
+                    setExpanded((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(p)) next.delete(p);
+                      else next.add(p);
+                      return next;
+                    })
+                  }
+                >
+                  {expanded.has(p) ? "▴" : "▾"}
+                </button>
+                <Chip sha={p} onClick={onSelect} />
+              </span>
             </div>
           ))}
         </>
@@ -195,7 +252,14 @@ export default function ObjectDetail({
         aria-hidden
       >
         {paths.map((p) => (
-          <path key={p.key} d={p.d} fill="none" stroke={p.color} strokeWidth={1.8} opacity={0.65} />
+          <path
+            key={p.key}
+            d={p.d}
+            fill="none"
+            stroke={p.color}
+            strokeWidth={1.8}
+            opacity={p.stale ? 0.22 : 0.65}
+          />
         ))}
       </svg>
       {depths.map((d) => (
