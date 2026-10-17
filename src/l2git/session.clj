@@ -7,7 +7,8 @@
             [l2git.scenarios :as scenarios])
   (:import [java.security SecureRandom]
            [java.time Instant]
-           [java.util.concurrent BlockingQueue LinkedBlockingQueue]))
+           [java.util.concurrent BlockingQueue LinkedBlockingQueue]
+           [org.eclipse.jgit.lib Repository Ref]))
 
 (defonce sessions (atom {}))
 
@@ -47,11 +48,27 @@
 (defn lookup [token]
   (get @sessions token))
 
+(defn- ref-snapshot
+  "branch -> tip hash for every refs/heads/* in the repo."
+  [^Repository repo]
+  (into {}
+        (map (fn [^Ref r] [(Repository/shortenRefName (.getName r))
+                           (.name (.getObjectId r))]))
+        (.getRefsByPrefix (.getRefDatabase repo) "refs/heads/")))
+
 (defn record-event!
   "Append an event to the session log (e.g. {:type :fetch :scenario id})
-  and push it to any live SSE listeners."
+  and push it to any live SSE listeners. Events about a materialized
+  scenario are stamped with a :refs snapshot (branch -> hash at that
+  moment) — repos never garbage-collect, so these snapshots are enough to
+  replay the remote's graph at any past event (the timeline scrubber).
+  Snapshots can't be recorded retroactively, hence stamping them long
+  before any UI consumes them."
   [token event]
-  (let [stamped (assoc event :at (str (Instant/now)))]
+  (let [repo    (when-let [sid (:scenario event)]
+                  (get-in @sessions [token :scenarios sid :repo]))
+        stamped (cond-> (assoc event :at (str (Instant/now)))
+                  repo (assoc :refs (ref-snapshot repo)))]
     (swap! sessions update-in [token :events] (fnil conj []) stamped)
     (broadcast! token stamped)))
 

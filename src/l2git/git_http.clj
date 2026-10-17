@@ -69,6 +69,25 @@
   ^PostReceiveHook [token scenario-id ambushed?]
   (reify PostReceiveHook
     (onPostReceive [_ rp commands]
+      ;; Record the push attempt itself — every command with its outcome.
+      ;; JGit hands this hook only the commands that succeeded, so the full
+      ;; set (rejected ones included) comes from the ReceivePack. A rejected
+      ;; command's :new id names a commit that already landed in the object
+      ;; store (packs unpack before refs update), which is what lets the
+      ;; timeline draw it as a ghost.
+      (let [all (.getAllCommands ^ReceivePack rp)]
+        (when (seq all)
+          (session/record-event!
+           token
+           {:type     :push
+            :scenario scenario-id
+            :commands (mapv (fn [^ReceiveCommand c]
+                              (cond-> {:ref    (Repository/shortenRefName (.getRefName c))
+                                       :old    (.name (.getOldId c))
+                                       :new    (.name (.getNewId c))
+                                       :result (.name (.getResult c))}
+                                (.getMessage c) (assoc :message (.getMessage c))))
+                            all)})))
       (let [ok? (some #(= ReceiveCommand$Result/OK (.getResult ^ReceiveCommand %))
                       commands)]
         (when (or ok? @ambushed?)

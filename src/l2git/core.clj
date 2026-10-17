@@ -4,13 +4,17 @@
   Git URLs carry the session token and scenario id:
       git clone http://localhost:8070/r/<token>/<scenario>.git
   API:
-      POST /api/session                           -> new session payload
-      GET  /api/session/<token>                   -> session + scenario list
-      GET  /api/session/<token>/graph/<scenario>  -> commit DAG for the viz
-      GET  /api/session/<token>/events            -> SSE stream of live events
+      POST /api/session                            -> new session payload
+      GET  /api/session/<token>                    -> session + scenario list
+      GET  /api/session/<token>/graph/<scenario>   -> commit DAG for the viz
+           ?refs=main=<sha>,...   render as of a past ref snapshot
+           ?extra=<sha>,...       include these tips too, marked :ghost
+      GET  /api/session/<token>/object/<scenario>/<sha> -> x-ray one object
+      GET  /api/session/<token>/events             -> SSE stream of live events
   Everything else is served from web/dist (the built frontend)."
   (:require [clojure.data.json :as json]
             [clojure.java.io :as io]
+            [clojure.string :as string]
             [l2git.git-http :as git-http]
             [l2git.graph :as graph]
             [l2git.scenarios :as scenarios]
@@ -72,6 +76,35 @@
                                                              :else                         "upcoming")})
                                           steps))}))
                  scenarios/catalog))))
+
+(defn- query-params
+  "Tiny query-string parser: 'a=1&b=2' -> {\"a\" \"1\", \"b\" \"2\"}.
+  Values are split on the first '=' only, so snapshot refs ('main=<sha>')
+  survive inside a value."
+  [req]
+  (into {}
+        (keep (fn [pair]
+                (let [i (string/index-of pair "=")]
+                  (when (and i (pos? i))
+                    [(subs pair 0 i) (subs pair (inc i))]))))
+        (string/split (or (:query-string req) "") #"&")))
+
+(defn- graph-opts
+  "Scrubber params for the graph endpoint: refs=main=<sha>,feat=<sha> is a
+  past ref snapshot to render instead of the live refs; extra=<sha>,<sha>
+  are tips to include as ghosts (e.g. a rejected push's commit)."
+  [req]
+  (let [qp        (query-params req)
+        parse-ref (fn [s] (let [i (string/index-of s "=")]
+                            (when (and i (pos? i))
+                              [(subs s 0 i) (subs s (inc i))])))]
+    {:refs-override (some->> (get qp "refs")
+                             (#(string/split % #","))
+                             (keep parse-ref)
+                             seq
+                             (into {}))
+     :extra-tips    (some-> (get qp "extra")
+                            (string/split #","))}))
 
 ;; --------------------------------------------------------------------- SSE
 
@@ -166,6 +199,16 @@
           :else (do (session/reset-scenario! token scenario-id)
                     (json-response (session-payload token (request-host req))))))
 
+      (and (= :get method)
+           (re-matches #"^/api/session/([a-z0-9]+)/object/([a-z0-9-]+)/([0-9a-f]{40})$" uri))
+      (let [[_ token scenario-id sha]
+            (re-matches #"^/api/session/([a-z0-9]+)/object/([a-z0-9-]+)/([0-9a-f]{40})$" uri)]
+        (if-let [{:keys [repo]} (session/repo-for! token scenario-id)]
+          (if-let [obj (graph/object-info repo sha)]
+            (json-response obj)
+            (json-response 404 {:error "no such object in this repository"}))
+          (json-response 404 {:error "unknown session token or scenario"})))
+
       (= :get method)
       (if-let [[_ token sub scenario-id]
                (re-matches #"^/api/session/([a-z0-9]+)(?:/(events|graph)(?:/([a-z0-9-]+))?)?$" uri)]
@@ -181,7 +224,7 @@
 
           (= sub "graph")
           (if-let [{:keys [repo known]} (session/repo-for! token scenario-id)]
-            (json-response (graph/repo-graph repo known))
+            (json-response (graph/repo-graph repo known (graph-opts req)))
             (json-response 404 {:error "unknown scenario"}))
 
           :else
