@@ -74,10 +74,14 @@ export default function Inspector({
   }, [token, scenarioId, vp]);
 
   // Chapter positions: proportional to real elapsed time, like a video
-  // scrubber — two pushes a second apart sit together; the quiet hour
-  // between them is visible as empty track.
+  // scrubber — two pushes a second apart sit together; the quiet half
+  // minute between them is visible as empty track. The "now" point is
+  // frozen a fixed beat after the latest event rather than at wall-clock
+  // now, or an idle hour would crush the whole story against the left edge.
   const positions = useMemo(() => {
-    const times = viewPoints.map((p) => (p.at ? Date.parse(p.at) : Date.now()));
+    const real = viewPoints.filter((p) => p.at).map((p) => Date.parse(p.at as string));
+    const liveT = real.length > 0 ? real[real.length - 1] + 30_000 : Date.now();
+    const times = viewPoints.map((p) => (p.at ? Date.parse(p.at) : liveT));
     const t0 = times[0];
     const span = Math.max(1, times[times.length - 1] - t0);
     return times.map((t) => ((t - t0) / span) * 100);
