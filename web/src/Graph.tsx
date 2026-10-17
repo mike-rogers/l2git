@@ -21,8 +21,9 @@ interface Placed {
 
 /** Greedy lane assignment over a newest-first topo order: a commit takes the
  * lane its first-seen child reserved for it, otherwise the next free lane.
- * First parents inherit the child's lane, so a branch reads as a column. */
-function layout(commits: Commit[]): { placed: Placed[]; lanes: number } {
+ * First parents inherit the child's lane, so a branch reads as a column.
+ * Exported for tests — it's the one piece of real logic in this file. */
+export function layout(commits: Commit[]): { placed: Placed[]; lanes: number } {
   const reserved = new Map<string, number>();
   let lanes = 0;
   const nextLane = () => lanes++;
@@ -31,7 +32,12 @@ function layout(commits: Commit[]): { placed: Placed[]; lanes: number } {
     const lane = reserved.get(commit.id) ?? nextLane();
     reserved.delete(commit.id);
     commit.parents.forEach((p, i) => {
-      if (!reserved.has(p)) reserved.set(p, i === 0 ? lane : nextLane());
+      const cur = reserved.get(p);
+      if (cur === undefined) reserved.set(p, i === 0 ? lane : nextLane());
+      // Two children can both claim a parent as their first parent (a merge
+      // base, a branch point); the lowest lane wins so the trunk stays a
+      // straight column instead of kinking under a side branch.
+      else if (i === 0 && lane < cur) reserved.set(p, lane);
     });
     return { commit, row, lane };
   });

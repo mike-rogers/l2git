@@ -79,6 +79,24 @@ its token goes into the URL. **Bookmark that URL**; the token *is* the
 session. Sessions live in server memory, so a restart forgets them — just
 reload the page to mint a fresh one.
 
+## Tests
+
+Both suites run in CI (`.github/workflows/ci.yml`) on every push and PR:
+
+```sh
+clojure -X:test        # backend: EDN validation, simulated-learner
+                       # walkthroughs of every scenario, timeline semantics
+cd web && npm test     # frontend: the pure logic (graph lane layout)
+```
+
+Scenario EDN is also validated at load time — a typo'd condition op, an
+unbound commit name, or a bad arity fails server startup with the file and
+form, instead of surfacing in a learner's terminal mid-push. The
+walkthrough tests simulate learners by committing directly into the
+in-memory origin, so adding a scenario should come with a solution script
+asserting it completes (and a regression for any exploit found against it
+— see #7).
+
 ## The exploratory-testing loop
 
 This is the whole job, and it's fun:

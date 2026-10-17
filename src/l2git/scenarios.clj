@@ -215,6 +215,106 @@
             (recur (inc i)
                    (conj passed {:title (:title step) :message (:pass step)}))))))))
 
+;; ------------------------------------------------------------- validation
+;; Authoring mistakes surface here, at load time, with the offending form —
+;; not in a learner's terminal mid-push. compile-scenario validates first;
+;; one bad EDN file fails startup by name.
+
+(def ^:private condition-arities
+  "op -> [min-args max-args] (nil max = variadic)."
+  {:and [1 nil] :or [1 nil] :not [1 1] :failed [0 0]
+   :known [1 1] :branch-exists [1 1] :reachable [2 2] :tip-is [2 2]
+   :branch-merged [2 2] :file-exists [2 2] :file-nonblank [2 2]
+   :file-equals [3 3]})
+
+(def ^:private commit-name-ops
+  "Conditions whose first argument names a commit that must be bound by
+  :setup or some hook's :commits."
+  #{:known :reachable :tip-is})
+
+(defn- fail!* [id msg form]
+  (throw (ex-info (str "invalid scenario " id ": " msg)
+                  {:scenario id :form form})))
+
+(defn- validate-condition [id names form]
+  (when-not (and (vector? form) (keyword? (first form)))
+    (fail!* id "condition must be a tagged vector" form))
+  (let [[op & args] form]
+    (if-let [[lo hi] (condition-arities op)]
+      (do
+        (when (or (< (count args) lo) (and hi (> (count args) hi)))
+          (fail!* id (str op " takes " lo (if (= lo hi) "" (str "-" (or hi "∞"))) " args") form))
+        (when (and (commit-name-ops op) (not (contains? names (first args))))
+          (fail!* id (str op " names unbound commit " (first args)) form))
+        (when (#{:and :or :not} op)
+          (run! #(validate-condition id names %) args)))
+      (fail!* id (str "unknown condition op " op) form))))
+
+(defn- validate-when-spec [id spec]
+  (when-not (or (= :now spec)
+                (and (vector? spec)
+                     (contains? #{:hours-before :minutes-before :seconds-ago}
+                                (first spec))
+                     (number? (second spec))))
+    (fail!* id "bad :when" spec)))
+
+(defn- validate-files-spec [id spec]
+  (cond
+    (map? spec)    nil
+    (vector? spec) (case (first spec)
+                     :files-at (when-not (string? (second spec))
+                                 (fail!* id "bad :files-at" spec))
+                     :merge    (run! #(validate-files-spec id %) (rest spec))
+                     (fail!* id "unknown :files op" spec))
+    :else          (fail!* id "bad :files" spec)))
+
+(defn- validate-commits
+  "Returns the set of commit names bound after these commits."
+  [id bound commits]
+  (reduce (fn [bound spec]
+            (when-not (contains? people (:author spec))
+              (fail!* id (str "unknown :author " (:author spec)) spec))
+            (when-not (string? (:message spec))
+              (fail!* id "commit needs a :message string" spec))
+            (validate-when-spec id (:when spec))
+            (validate-files-spec id (:files spec))
+            (when-let [p (:parent spec)]
+              (when-not (contains? bound p)
+                (fail!* id (str ":parent names unbound commit " p) spec)))
+            (cond-> bound (:name spec) (conj (:name spec))))
+          bound
+          commits))
+
+(defn validate-scenario
+  "Walk a raw scenario map; throws ex-info naming the offending form.
+  Returns the map unchanged so it threads into compilation."
+  [m]
+  (let [id (or (:id m) (fail!* "?" "scenario needs an :id" m))]
+    (when-not (contains? #{:basic :intermediate :advanced} (:level m))
+      (fail!* id "bad :level" (:level m)))
+    (when-not (or (:steps m) (:evaluate m))
+      (fail!* id "needs :steps or :evaluate" nil))
+    (let [names (reduce (fn [names hook-key]
+                          (if-let [h (hook-key m)]
+                            (validate-commits id names (:commits h))
+                            names))
+                        (validate-commits id #{} (get-in m [:setup :commits]))
+                        [:after-fetch :before-push :after-evaluate])]
+      (doseq [hk [:after-fetch :before-push]]
+        (when-let [o (:once (hk m))]
+          (when-not (contains? names o)
+            (fail!* id (str ":once names unbound commit " o) (hk m)))))
+      (doseq [step (normalize-steps m)]
+        (when-not (string? (:pass step))
+          (fail!* id "step needs a :pass message" step))
+        (doseq [{c :cond f :fail :as chk} (:checks step)]
+          (when-not (string? f)
+            (fail!* id "check needs a :fail message" chk))
+          (validate-condition id names c)))
+      (when-let [ae (:after-evaluate m)]
+        (validate-condition id names (:when ae))))
+    m))
+
 (defn- compile-puppeteer [{:keys [once commits event]}]
   (fn [repo known created-at]
     (when-not (and once (contains? known once))
@@ -229,6 +329,7 @@
 
 (defn- compile-scenario [m]
   (-> m
+      validate-scenario
       (assoc :setup (compile-setup (:setup m))
              :steps (vec (map-indexed compile-step (normalize-steps m))))
       (dissoc :evaluate)
@@ -245,8 +346,15 @@
     (edn/read-string (slurp r))
     (throw (ex-info "missing scenario resource" {:path path}))))
 
+(defn- load-scenario [file]
+  (try
+    (compile-scenario (read-resource (str "scenarios/" file)))
+    (catch Exception e
+      (throw (ex-info (str "failed to load scenario " file ": " (ex-message e))
+                      {:file file}
+                      e)))))
+
 (def catalog
-  (mapv #(compile-scenario (read-resource (str "scenarios/" %)))
-        (read-resource "scenarios/index.edn")))
+  (mapv load-scenario (read-resource "scenarios/index.edn")))
 
 (def by-id (into {} (map (juxt :id identity)) catalog))
