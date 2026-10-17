@@ -46,7 +46,16 @@ function relTime(unixSeconds: number): string {
   return `${Math.round(s / 86400)} d ago`;
 }
 
-export default function Graph({ data }: { data: GraphData }) {
+export default function Graph({
+  data,
+  onInspect,
+  inspected,
+}: {
+  data: GraphData;
+  /** Click a commit to x-ray it. */
+  onInspect?: (sha: string) => void;
+  inspected?: string | null;
+}) {
   const { placed, lanes } = layout(data.commits);
   const byId = new Map(placed.map((p) => [p.commit.id, p]));
   const railsW = lanes * LANE_W + LANE_W / 2;
@@ -99,15 +108,24 @@ export default function Graph({ data }: { data: GraphData }) {
             cx={cx(lane)}
             cy={cy(row)}
             r={NODE_R}
-            fill={commit.seeded ? "var(--bg)" : LANE_COLORS[lane % LANE_COLORS.length]}
+            fill={commit.seeded || commit.ghost ? "var(--bg)" : LANE_COLORS[lane % LANE_COLORS.length]}
             stroke={LANE_COLORS[lane % LANE_COLORS.length]}
             strokeWidth={2.5}
+            strokeDasharray={commit.ghost ? "3 3" : undefined}
+            opacity={commit.ghost ? 0.55 : 1}
           />
         ))}
       </svg>
       <div className="graph-rows" style={{ marginLeft: railsW + 10 }}>
         {placed.map(({ commit }) => (
-          <div className="graph-row" key={commit.id} title={commit.id}>
+          <div
+            className={`graph-row${commit.ghost ? " ghost" : ""}${
+              onInspect ? " inspectable" : ""
+            }${inspected === commit.id ? " inspected" : ""}`}
+            key={commit.id}
+            title={onInspect ? `${commit.id} — click to x-ray` : commit.id}
+            onClick={onInspect ? () => onInspect(commit.id) : undefined}
+          >
             <code className="hash">{commit.short}</code>
             <span className="message">{commit.message}</span>
             {(refsByTarget.get(commit.id) ?? []).map((name) => (
@@ -116,7 +134,12 @@ export default function Graph({ data }: { data: GraphData }) {
                 {name === data.head ? " · HEAD" : ""}
               </span>
             ))}
-            {commit.seeded && <span className="seeded-pill">was here</span>}
+            {commit.seeded && !commit.ghost && <span className="seeded-pill">was here</span>}
+            {commit.ghost && (
+              <span className="ghost-pill" title="in the object store, but no branch points at it">
+                unreachable
+              </span>
+            )}
             <span className="meta">
               {commit.author} · {relTime(commit.time)}
             </span>

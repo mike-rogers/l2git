@@ -242,3 +242,101 @@ main { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px
 
 .graph-empty, .boot, .boot-error { color: var(--muted); padding: 24px; text-align: center; }
 .boot-error { color: var(--fail); }
+
+/* ------------------------------------------------------- timeline scrubber */
+
+.timeline { margin-bottom: 14px; }
+.tl-track {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 0 2px;
+  position: relative;
+}
+.tl-track::before {
+  content: ""; position: absolute; left: 4px; right: 4px; top: 50%;
+  border-top: 2px solid var(--border); z-index: 0;
+}
+.tl-dot {
+  position: relative; z-index: 1;
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid var(--border); background: var(--card); color: var(--muted);
+  cursor: pointer; font-size: 13px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+.tl-dot:hover { border-color: var(--accent); color: var(--accent); transform: scale(1.12); }
+.tl-dot.selected { border-color: var(--accent); background: var(--accent); color: #fff; }
+.tl-dot.live { color: var(--pass); border-style: dashed; }
+.tl-dot.live.selected { background: var(--card); border-color: var(--pass); border-style: solid; }
+
+.tl-note {
+  background: var(--pill-bg); border-radius: 8px; padding: 9px 12px;
+  margin-top: 8px; font-size: 13.5px;
+  animation: arrive 0.25s ease-out;
+}
+.tl-note strong { margin-right: 8px; }
+.tl-when { color: var(--muted); font-size: 12px; }
+.tl-note p { margin: 6px 0 0; color: var(--muted); }
+.tl-live-btn {
+  display: block; margin-top: 8px; border: none; background: none; padding: 0;
+  color: var(--accent); cursor: pointer; font: inherit; font-size: 13px;
+}
+
+/* ------------------------------------------------------------------ ghosts */
+
+.graph-row.ghost { opacity: 0.62; }
+.graph-row.ghost .message { font-style: italic; }
+.ghost-pill {
+  font-size: 11px; color: var(--muted);
+  border: 1px dashed var(--muted); padding: 1px 8px; border-radius: 99px;
+  white-space: nowrap;
+}
+.graph-row.inspectable { cursor: pointer; }
+.graph-row.inspectable:hover { background: color-mix(in srgb, var(--pill-bg) 60%, transparent); }
+.graph-row.inspected { background: var(--pill-bg); border-radius: 8px; }
+
+/* ------------------------------------------------------------------- x-ray */
+
+.xray {
+  margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px;
+  animation: arrive 0.25s ease-out;
+}
+.xray-head { display: flex; align-items: center; gap: 10px; }
+.xray-head h4 {
+  margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--muted); display: flex; align-items: center; gap: 8px;
+}
+.xray-nav {
+  border: none; background: none; cursor: pointer; color: var(--muted);
+  font: inherit; font-size: 13px; padding: 0 2px;
+}
+.xray-nav:last-child { margin-left: auto; font-size: 17px; }
+.xray-nav:hover { color: var(--text); }
+
+.otype-pill {
+  font-size: 11px; padding: 1px 8px; border-radius: 99px; letter-spacing: 0;
+  text-transform: none; background: var(--pill-bg); color: var(--text);
+}
+
+.hash-chip {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
+  border: 1px solid; border-radius: 6px; padding: 1px 7px;
+  background: none; cursor: default; white-space: nowrap;
+}
+button.hash-chip { cursor: pointer; }
+button.hash-chip:hover { filter: brightness(1.15); text-decoration: underline; }
+
+.xray-fields {
+  display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px;
+  margin: 10px 0; font-size: 13.5px; align-items: baseline;
+}
+.xray-k {
+  font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--muted);
+}
+.xray-pre {
+  background: var(--pill-bg); border-radius: 8px; padding: 10px 12px;
+  margin: 8px 0; font-size: 12.5px; overflow-x: auto; white-space: pre-wrap;
+}
+.xray-tree { border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+.xray-tree td { padding: 4px 12px 4px 0; }
+.mono { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+.xray-moral { color: var(--muted); font-size: 13px; font-style: italic; margin: 8px 0 0; }

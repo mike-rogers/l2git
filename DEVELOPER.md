@@ -106,6 +106,9 @@ Useful endpoints for poking (also how the UI works — watch the Network tab):
 curl -s -X POST localhost:8070/api/session                      # new session
 curl -s localhost:8070/api/session/<token>                      # state + event log
 curl -s localhost:8070/api/session/<token>/graph/<scenario-id>  # the DAG the UI draws
+#   ?refs=main=<sha>   render as of a past ref snapshot (events carry them)
+#   ?extra=<sha>,...   include unreachable tips too, marked "ghost"
+curl -s localhost:8070/api/session/<token>/object/<scenario-id>/<sha>  # x-ray any object
 curl -s -N localhost:8070/api/session/<token>/events            # live SSE stream
 ```
 

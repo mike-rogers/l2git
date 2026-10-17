@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createSession, eventStream, getGraph, getSession, resetScenario } from "./api";
 import Graph from "./Graph";
+import Timeline, { allGhosts, buildTimeline } from "./Timeline";
+import XRay from "./XRay";
 import type { Graph as GraphData, Level, Scenario, Session, SessionEvent } from "./types";
 
 const LEVELS: { level: Level; label: string }[] = [
@@ -226,6 +228,11 @@ export default function App() {
   const [celebration, setCelebration] = useState<{ scenario: string; message: string } | null>(
     null,
   );
+  // Timeline scrubber: null = live, otherwise an index into the points.
+  const [scrub, setScrub] = useState<number | null>(null);
+  const [snapGraph, setSnapGraph] = useState<GraphData | null>(null);
+  // X-ray: the commit being inspected, if any.
+  const [inspected, setInspected] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
   const current: Scenario | undefined =
@@ -233,11 +240,47 @@ export default function App() {
     session?.scenarios.find((s) => s.status !== "complete") ??
     session?.scenarios[session.scenarios.length - 1];
 
+  const points = useMemo(
+    () => (session && current ? buildTimeline(session.events, current.id) : []),
+    [session, current?.id],
+  );
+
   const refresh = useCallback(async (token: string, scenarioId: string) => {
-    const [s, g] = await Promise.all([getSession(token), getGraph(token, scenarioId)]);
+    // Session first: the graph wants the ghost list, which lives in events.
+    const s = await getSession(token);
     if (s) setSession(s);
-    setGraph(g);
+    const ghosts = allGhosts(buildTimeline(s?.events ?? [], scenarioId));
+    setGraph(await getGraph(token, scenarioId, { extra: ghosts }));
   }, []);
+
+  // Scenario switch: drop any scrub position and open x-ray.
+  useEffect(() => {
+    setScrub(null);
+    setInspected(null);
+  }, [current?.id]);
+
+  // A reset shrinks the timeline; don't point past its end.
+  useEffect(() => {
+    if (scrub !== null && scrub >= points.length) setScrub(null);
+  }, [scrub, points.length]);
+
+  // Scrubbing: fetch the graph as of the chosen moment.
+  useEffect(() => {
+    if (scrub === null || !session || !current) {
+      setSnapGraph(null);
+      return;
+    }
+    const p = points[scrub];
+    if (!p) return;
+    let live = true;
+    getGraph(session.token, current.id, { refs: p.refs, extra: p.ghosts })
+      .then((g) => live && setSnapGraph(g))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrub, points, session?.token, current?.id]);
 
   // Boot: restore session from URL token, or mint a fresh one.
   useEffect(() => {
@@ -325,9 +368,34 @@ export default function App() {
         </div>
         <div className="stage card">
           <h3>
-            the remote, live <span className="pulse" title="updates as you push" />
+            {scrub === null ? (
+              <>
+                the remote, live <span className="pulse" title="updates as you push" />
+              </>
+            ) : (
+              <>the remote, as it was</>
+            )}
           </h3>
-          {graph ? <Graph data={graph} /> : <p className="muted">loading graph…</p>}
+          <Timeline points={points} selected={scrub} onSelect={setScrub} />
+          {scrub !== null && !snapGraph ? (
+            <p className="muted">rewinding…</p>
+          ) : (scrub !== null ? snapGraph : graph) ? (
+            <Graph
+              data={(scrub !== null ? snapGraph : graph)!}
+              onInspect={(sha) => setInspected(sha === inspected ? null : sha)}
+              inspected={inspected}
+            />
+          ) : (
+            <p className="muted">loading graph…</p>
+          )}
+          {inspected && (
+            <XRay
+              token={session.token}
+              scenario={current.id}
+              rootSha={inspected}
+              onClose={() => setInspected(null)}
+            />
+          )}
         </div>
       </main>
     </div>
