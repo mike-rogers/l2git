@@ -134,12 +134,6 @@ export default function Graph({
                 {name === data.head ? " · HEAD" : ""}
               </span>
             ))}
-            {commit.seeded && !commit.ghost && <span className="seeded-pill">was here</span>}
-            {commit.ghost && (
-              <span className="ghost-pill" title="in the object store, but no branch points at it">
-                unreachable
-              </span>
-            )}
             <span className="meta">
               {commit.author} · {relTime(commit.time)}
             </span>

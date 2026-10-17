@@ -166,8 +166,14 @@ function SuccessBanner({
 }) {
   const done = scenarios.find((s) => s.id === celebration.scenario);
   const next = scenarios.find((s) => s.status !== "complete");
+  // The banner sits below the lesson text (where the post-completion
+  // debrief will live), so make sure it's actually seen when it lands.
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, []);
   return (
-    <div className="banner" role="status">
+    <div className="banner" role="status" ref={ref}>
       <span className="banner-check">✓</span>
       <div className="banner-text">
         <strong>{done?.title ?? celebration.scenario} — complete!</strong>
@@ -234,7 +240,28 @@ export default function App() {
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightTab, setRightTab] = useState<RightTab>("activity");
   const [bottomOpen, setBottomOpen] = useState(true);
+  // Bottom panel height: fixed (~3.5 graph rows) by default, drag to taste.
+  const [bottomH, setBottomH] = useState(196);
   const esRef = useRef<EventSource | null>(null);
+
+  const startBottomResize = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startH = bottomH;
+      const move = (ev: MouseEvent) =>
+        setBottomH(
+          Math.min(Math.max(startH + (startY - ev.clientY), 110), window.innerHeight * 0.7),
+        );
+      const up = () => {
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+      };
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+    },
+    [bottomH],
+  );
 
   const current: Scenario | undefined =
     session?.scenarios.find((s) => s.id === selectedId) ??
@@ -302,17 +329,6 @@ export default function App() {
           session <code>{session.token}</code>
         </span>
       </header>
-      {celebration && (
-        <SuccessBanner
-          celebration={celebration}
-          scenarios={session.scenarios}
-          onNext={(id) => {
-            setSelectedId(id);
-            setCelebration(null);
-          }}
-          onDismiss={() => setCelebration(null)}
-        />
-      )}
       <div className="ide-body">
         {leftOpen ? (
           <aside className="panel panel-left">
@@ -356,6 +372,20 @@ export default function App() {
                 .catch(() => {});
             }}
           />
+          {celebration && celebration.scenario === current.id && (
+            // Below the lesson text, above where the post-completion
+            // debrief/theory will unlock — the hinge between "what you
+            // did" and "why it worked".
+            <SuccessBanner
+              celebration={celebration}
+              scenarios={session.scenarios}
+              onNext={(id) => {
+                setSelectedId(id);
+                setCelebration(null);
+              }}
+              onDismiss={() => setCelebration(null)}
+            />
+          )}
         </main>
         {rightTab === "activity" && (
           <aside className="panel panel-right">
@@ -385,7 +415,18 @@ export default function App() {
           </button>
         </nav>
       </div>
-      <section className={`panel panel-bottom${bottomOpen ? "" : " closed"}`}>
+      <section
+        className={`panel panel-bottom${bottomOpen ? "" : " closed"}`}
+        style={bottomOpen ? { height: bottomH } : undefined}
+      >
+        {bottomOpen && (
+          <div
+            className="resize-handle"
+            onMouseDown={startBottomResize}
+            title="Drag to resize"
+            aria-hidden
+          />
+        )}
         <div className="panel-head">
           <span>
             the remote, live <span className="pulse" title="updates as you push" />

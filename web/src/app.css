@@ -99,9 +99,14 @@ html, body, #root { height: 100%; }
 .lesson .scenario { max-width: 760px; margin: 0 auto; }
 .lesson .scenario > p { font-size: 16px; }
 
-.panel-bottom { flex: none; max-height: 42vh; border-top: 1px solid var(--border); }
-.panel-bottom .panel-body { padding: 10px 16px 16px; }
+.panel-bottom { flex: none; border-top: 1px solid var(--border); position: relative; }
+.panel-bottom .panel-body { padding: 6px 16px 12px; }
 .panel-bottom.closed .panel-head { border-bottom: none; }
+.resize-handle {
+  position: absolute; top: -4px; left: 0; right: 0; height: 8px;
+  cursor: ns-resize; z-index: 2;
+}
+.resize-handle:hover { background: color-mix(in srgb, var(--accent) 25%, transparent); }
 
 .masthead {
   flex: none; display: flex; align-items: baseline; gap: 12px;
@@ -114,10 +119,11 @@ html, body, #root { height: 100%; }
 .token code { background: var(--pill-bg); padding: 2px 7px; border-radius: 6px; }
 
 .banner {
-  flex: none; display: flex; align-items: center; gap: 14px;
+  display: flex; align-items: center; gap: 14px;
   background: color-mix(in srgb, var(--pass) 12%, var(--card));
   border: 1px solid color-mix(in srgb, var(--pass) 45%, transparent);
-  border-radius: 12px; padding: 12px 18px; margin: 10px 16px 0;
+  border-radius: 12px; padding: 12px 18px;
+  max-width: 760px; margin: 22px auto 0;
   animation: banner-in 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 @keyframes banner-in {
@@ -287,11 +293,6 @@ html, body, #root { height: 100%; }
 }
 .ref-pill.head { font-weight: 700; }
 
-.seeded-pill {
-  font-size: 11px; color: var(--muted);
-  border: 1px dashed var(--border); padding: 1px 8px; border-radius: 99px;
-  white-space: nowrap;
-}
 
 .graph-empty, .boot, .boot-error { color: var(--muted); padding: 24px; text-align: center; }
 .boot-error { color: var(--fail); }
@@ -338,11 +339,6 @@ html, body, #root { height: 100%; }
 
 .graph-row.ghost { opacity: 0.62; }
 .graph-row.ghost .message { font-style: italic; }
-.ghost-pill {
-  font-size: 11px; color: var(--muted);
-  border: 1px dashed var(--muted); padding: 1px 8px; border-radius: 99px;
-  white-space: nowrap;
-}
 .graph-row.inspectable { cursor: pointer; }
 .graph-row.inspectable:hover { background: color-mix(in srgb, var(--pill-bg) 60%, transparent); }
 .graph-row.inspected { background: var(--pill-bg); border-radius: 8px; }

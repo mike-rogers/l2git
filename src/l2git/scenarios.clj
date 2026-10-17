@@ -21,7 +21,8 @@
   `known` maps commit names (:seed, :pat-1, …) to hash strings, bound when
   the DSL creates commits and consulted by conditions. Timestamps in :setup
   are relative to the session's creation (`[:hours-before 2]`), so repos are
-  deterministic per session and always look fresh; hooks use `:now`.
+  deterministic per session and always look fresh; hooks use `:now`, or
+  `[:seconds-ago N]` when the move should read as slightly in the past.
 
   Conditions are tagged vectors:
     [:and c…] [:or c…] [:not c]      logic
@@ -100,6 +101,11 @@
       (case op
         :hours-before   (.minusSeconds created-at (long (* n 3600)))
         :minutes-before (.minusSeconds created-at (long (* n 60)))
+        ;; Relative to the moment the hook runs, not session creation —
+        ;; for a teammate whose move must read as slightly in the past
+        ;; (e.g. before the learner's own commit, so the graph's time
+        ;; ordering tells the same story the lesson does).
+        :seconds-ago    (.minusSeconds (Instant/now) (long n))
         (throw (ex-info "unknown :when op" {:spec spec}))))
     :else (throw (ex-info "unknown :when spec" {:spec spec}))))
 

@@ -23,10 +23,13 @@
  :before-push
  {:branch  "main"
   :once    :pat-1
+  ;; Pat's timestamp sits a little in the past: he pushed *before* the
+  ;; learner's push attempt — and typically before their local commit —
+  ;; so the graph's time ordering tells the same story the lesson does.
   :commits [{:name    :pat-1
              :branch  "main"
              :author  :pat
-             :when    :now
+             :when    [:seconds-ago 90]
              :message "Add my sprint notes\n"
              :files   {"welcome.txt"  "Welcome to l2git!\n"
                        "pat-notes.md" "- fix the flaky login test\n- review Sam's PR\n"}}]
