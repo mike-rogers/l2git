@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createSession, eventStream, getGraph, getSession, resetScenario } from "./api";
 import Graph from "./Graph";
-import Timeline, { allGhosts, buildTimeline } from "./Timeline";
-import XRay from "./XRay";
+// Timeline's scrubber and the XRay inspector are deliberately not rendered
+// yet — they're getting their own design pass — but buildTimeline/allGhosts
+// still feed the live graph its ghost (unreachable-commit) candidates.
+import { allGhosts, buildTimeline } from "./Timeline";
 import type { Graph as GraphData, Level, Scenario, Session, SessionEvent } from "./types";
 
 const LEVELS: { level: Level; label: string }[] = [
@@ -27,8 +29,7 @@ function ScenarioTree({
   onSelect: (id: string) => void;
 }) {
   return (
-    <nav className="card tree">
-      <h3>Scenarios</h3>
+    <nav className="tree">
       {LEVELS.map(({ level, label }) => {
         const group = scenarios.filter((s) => s.level === level);
         return (
@@ -112,7 +113,7 @@ function ScenarioCard({ scenario, onReset }: { scenario: Scenario; onReset: () =
   const multi = steps.length > 1;
   const current = steps.find((s) => s.status === "current") ?? null;
   return (
-    <section className={`card scenario ${scenario.status}`}>
+    <article className={`scenario ${scenario.status}`}>
       <header>
         <h2>{scenario.title}</h2>
         <span className={`status-pill ${scenario.status}`}>
@@ -148,7 +149,7 @@ function ScenarioCard({ scenario, onReset }: { scenario: Scenario; onReset: () =
           ↺ reset scenario
         </button>
       )}
-    </section>
+    </article>
   );
 }
 
@@ -187,36 +188,37 @@ function SuccessBanner({
 }
 
 function EventLog({ events }: { events: SessionEvent[] }) {
+  if (events.length === 0)
+    return <p className="muted panel-empty">Nothing yet — clone the repo to begin.</p>;
   return (
-    <section className="card">
-      <h3>Activity</h3>
-      {events.length === 0 ? (
-        <p className="muted">Nothing yet — clone the repo to begin.</p>
-      ) : (
-        <ul className="events">
-          {[...events].reverse().map((e, i) => (
-            <li key={`${e.at}-${i}`} className={e["pass?"] === false ? "fail" : e["pass?"] ? "pass" : ""}>
-              {e.type === "fetch" ? (
-                <span>⇣ repository fetched</span>
-              ) : e.type === "teammate" ? (
-                <span className="teammate">⇡ {e.message}</span>
-              ) : e.type === "reset" ? (
-                <span className="muted">↺ {e.message}</span>
-              ) : e.type === "step" ? (
-                <span className="step-ev">✓ {e.message}</span>
-              ) : (
-                <span>
-                  {e["pass?"] ? "✓" : "✗"} {e.message}
-                </span>
-              )}
-              <time>{new Date(e.at).toLocaleTimeString()}</time>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+    <ul className="events">
+      {[...events].reverse().map((e, i) => (
+        <li key={`${e.at}-${i}`} className={e["pass?"] === false ? "fail" : e["pass?"] ? "pass" : ""}>
+          {e.type === "fetch" ? (
+            <span>⇣ repository fetched</span>
+          ) : e.type === "push" ? (
+            <span>
+              ⇡ push {e.commands?.some((c) => c.result !== "OK") ? "rejected" : "received"}
+            </span>
+          ) : e.type === "teammate" ? (
+            <span className="teammate">⇡ {e.message}</span>
+          ) : e.type === "reset" ? (
+            <span className="muted">↺ {e.message}</span>
+          ) : e.type === "step" ? (
+            <span className="step-ev">✓ {e.message}</span>
+          ) : (
+            <span>
+              {e["pass?"] ? "✓" : "✗"} {e.message}
+            </span>
+          )}
+          <time>{new Date(e.at).toLocaleTimeString()}</time>
+        </li>
+      ))}
+    </ul>
   );
 }
+
+type RightTab = "activity" | null;
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -228,22 +230,16 @@ export default function App() {
   const [celebration, setCelebration] = useState<{ scenario: string; message: string } | null>(
     null,
   );
-  // Timeline scrubber: null = live, otherwise an index into the points.
-  const [scrub, setScrub] = useState<number | null>(null);
-  const [snapGraph, setSnapGraph] = useState<GraphData | null>(null);
-  // X-ray: the commit being inspected, if any.
-  const [inspected, setInspected] = useState<string | null>(null);
+  // IDE-style tool windows: collapsible edge panels around the lesson.
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightTab, setRightTab] = useState<RightTab>("activity");
+  const [bottomOpen, setBottomOpen] = useState(true);
   const esRef = useRef<EventSource | null>(null);
 
   const current: Scenario | undefined =
     session?.scenarios.find((s) => s.id === selectedId) ??
     session?.scenarios.find((s) => s.status !== "complete") ??
     session?.scenarios[session.scenarios.length - 1];
-
-  const points = useMemo(
-    () => (session && current ? buildTimeline(session.events, current.id) : []),
-    [session, current?.id],
-  );
 
   const refresh = useCallback(async (token: string, scenarioId: string) => {
     // Session first: the graph wants the ghost list, which lives in events.
@@ -252,35 +248,6 @@ export default function App() {
     const ghosts = allGhosts(buildTimeline(s?.events ?? [], scenarioId));
     setGraph(await getGraph(token, scenarioId, { extra: ghosts }));
   }, []);
-
-  // Scenario switch: drop any scrub position and open x-ray.
-  useEffect(() => {
-    setScrub(null);
-    setInspected(null);
-  }, [current?.id]);
-
-  // A reset shrinks the timeline; don't point past its end.
-  useEffect(() => {
-    if (scrub !== null && scrub >= points.length) setScrub(null);
-  }, [scrub, points.length]);
-
-  // Scrubbing: fetch the graph as of the chosen moment.
-  useEffect(() => {
-    if (scrub === null || !session || !current) {
-      setSnapGraph(null);
-      return;
-    }
-    const p = points[scrub];
-    if (!p) return;
-    let live = true;
-    getGraph(session.token, current.id, { refs: p.refs, extra: p.ghosts })
-      .then((g) => live && setSnapGraph(g))
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scrub, points, session?.token, current?.id]);
 
   // Boot: restore session from URL token, or mint a fresh one.
   useEffect(() => {
@@ -327,10 +294,10 @@ export default function App() {
   if (!session || !current) return <div className="boot">warming up…</div>;
 
   return (
-    <div className="layout">
+    <div className="ide">
       <header className="masthead">
         <h1>l2git</h1>
-        <span className="tagline">real git, no fear</span>
+        <span className="tagline">git good, newb</span>
         <span className="token" title="Bookmark this page — the token is your session.">
           session <code>{session.token}</code>
         </span>
@@ -346,13 +313,38 @@ export default function App() {
           onDismiss={() => setCelebration(null)}
         />
       )}
-      <main>
-        <div className="side">
-          <ScenarioTree
-            scenarios={session.scenarios}
-            selectedId={current.id}
-            onSelect={setSelectedId}
-          />
+      <div className="ide-body">
+        {leftOpen ? (
+          <aside className="panel panel-left">
+            <div className="panel-head">
+              <span>Scenarios</span>
+              <button
+                className="panel-toggle"
+                onClick={() => setLeftOpen(false)}
+                title="Collapse scenarios panel"
+                aria-label="Collapse scenarios panel"
+              >
+                ⟨
+              </button>
+            </div>
+            <div className="panel-body">
+              <ScenarioTree
+                scenarios={session.scenarios}
+                selectedId={current.id}
+                onSelect={setSelectedId}
+              />
+            </div>
+          </aside>
+        ) : (
+          <button
+            className="panel-stub stub-left"
+            onClick={() => setLeftOpen(true)}
+            title="Open scenarios panel"
+          >
+            <span className="stub-label">Scenarios ⟩</span>
+          </button>
+        )}
+        <main className="lesson">
           <ScenarioCard
             scenario={current}
             onReset={() => {
@@ -364,40 +356,55 @@ export default function App() {
                 .catch(() => {});
             }}
           />
-          <EventLog events={session.events} />
+        </main>
+        {rightTab === "activity" && (
+          <aside className="panel panel-right">
+            <div className="panel-head">
+              <span>Activity</span>
+              <button
+                className="panel-toggle"
+                onClick={() => setRightTab(null)}
+                title="Collapse activity panel"
+                aria-label="Collapse activity panel"
+              >
+                ⟩
+              </button>
+            </div>
+            <div className="panel-body">
+              <EventLog events={session.events} />
+            </div>
+          </aside>
+        )}
+        <nav className="rail" aria-label="tool windows">
+          <button
+            className={rightTab === "activity" ? "active" : ""}
+            onClick={() => setRightTab(rightTab === "activity" ? null : "activity")}
+            title="Activity log"
+          >
+            Activity
+          </button>
+        </nav>
+      </div>
+      <section className={`panel panel-bottom${bottomOpen ? "" : " closed"}`}>
+        <div className="panel-head">
+          <span>
+            the remote, live <span className="pulse" title="updates as you push" />
+          </span>
+          <button
+            className="panel-toggle"
+            onClick={() => setBottomOpen(!bottomOpen)}
+            title={bottomOpen ? "Collapse remote panel" : "Open remote panel"}
+            aria-label={bottomOpen ? "Collapse remote panel" : "Open remote panel"}
+          >
+            {bottomOpen ? "⌄" : "⌃"}
+          </button>
         </div>
-        <div className="stage card">
-          <h3>
-            {scrub === null ? (
-              <>
-                the remote, live <span className="pulse" title="updates as you push" />
-              </>
-            ) : (
-              <>the remote, as it was</>
-            )}
-          </h3>
-          <Timeline points={points} selected={scrub} onSelect={setScrub} />
-          {scrub !== null && !snapGraph ? (
-            <p className="muted">rewinding…</p>
-          ) : (scrub !== null ? snapGraph : graph) ? (
-            <Graph
-              data={(scrub !== null ? snapGraph : graph)!}
-              onInspect={(sha) => setInspected(sha === inspected ? null : sha)}
-              inspected={inspected}
-            />
-          ) : (
-            <p className="muted">loading graph…</p>
-          )}
-          {inspected && (
-            <XRay
-              token={session.token}
-              scenario={current.id}
-              rootSha={inspected}
-              onClose={() => setInspected(null)}
-            />
-          )}
-        </div>
-      </main>
+        {bottomOpen && (
+          <div className="panel-body">
+            {graph ? <Graph data={graph} /> : <p className="muted">loading graph…</p>}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
