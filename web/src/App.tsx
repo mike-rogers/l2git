@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createSession, eventStream, getGraph, getSession, resetScenario } from "./api";
 import Graph from "./Graph";
 import Inspector from "./Inspector";
-import { allGhosts, buildTimeline } from "./Timeline";
 import type { Graph as GraphData, Level, Scenario, Session, SessionEvent } from "./types";
 
 const LEVELS: { level: Level; label: string }[] = [
@@ -269,11 +268,10 @@ export default function App() {
     session?.scenarios[session.scenarios.length - 1];
 
   const refresh = useCallback(async (token: string, scenarioId: string) => {
-    // Session first: the graph wants the ghost list, which lives in events.
-    const s = await getSession(token);
+    // The server owns ghost/timeline state, so these are independent.
+    const [s, g] = await Promise.all([getSession(token), getGraph(token, scenarioId)]);
     if (s) setSession(s);
-    const ghosts = allGhosts(buildTimeline(s?.events ?? [], scenarioId));
-    setGraph(await getGraph(token, scenarioId, { extra: ghosts }));
+    setGraph(g);
   }, []);
 
   // Boot: restore session from URL token, or mint a fresh one.
@@ -461,7 +459,7 @@ export default function App() {
         <Inspector
           token={session.token}
           scenarioId={current.id}
-          events={session.events}
+          eventCount={session.events.length}
           onClose={() => setInspecting(false)}
         />
       )}

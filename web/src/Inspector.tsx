@@ -1,22 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import { getObjects, type ObjectEntry } from "./api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { getObjects, getTimeline, type ObjectEntry, type TimelinePoint } from "./api";
 import ObjectDetail from "./ObjectDetail";
-import { allGhosts, buildTimeline } from "./Timeline";
-import type { SessionEvent } from "./types";
 
 /** The under-the-hood popover: a video-style scrubber over the remote's
- * history (chapter markers at their real moments in time), and the object
- * database's full contents at whichever moment is selected. The main area
- * is deliberately empty for now — the object detail/relationship view is
- * its own design pass. */
-
-interface ViewPoint {
-  icon: string;
-  label: string;
-  at: string | null; // null = the live "now" point
-  refs?: Record<string, string>;
-  ghosts: string[];
-}
+ * history (chapter markers at their real moments in time), the object
+ * database's full contents at whichever moment is selected, and the
+ * pointer graph of the selected object. Timeline semantics live on the
+ * server — this component renders points and asks for states by index. */
 
 const OTYPE_ICON: Record<ObjectEntry["otype"], string> = {
   commit: "◉",
@@ -35,60 +25,72 @@ const inspectorMemory = new Map<
 export default function Inspector({
   token,
   scenarioId,
-  events,
+  eventCount,
   onClose,
 }: {
   token: string;
   scenarioId: string;
-  events: SessionEvent[];
+  /** Bumps when the session log grows; triggers a timeline refetch. */
+  eventCount: number;
   onClose: () => void;
 }) {
-  const viewPoints: ViewPoint[] = useMemo(() => {
-    const pts = buildTimeline(events, scenarioId);
-    return [
-      ...pts.map((p) => ({ icon: p.icon, label: p.label, at: p.at, refs: p.refs, ghosts: p.ghosts })),
-      { icon: "●", label: "now", at: null, ghosts: allGhosts(pts) },
-    ];
-  }, [events, scenarioId]);
-
   const memKey = `${token}:${scenarioId}`;
   const remembered = inspectorMemory.get(memKey);
 
-  // Default to "now" (the last point), or wherever this popover was last
-  // closed for this scenario.
-  const initialIdx = (() => {
-    if (!remembered || remembered.at === null) return viewPoints.length - 1;
-    const i = viewPoints.findIndex((p) => p.at === remembered.at);
-    return i >= 0 ? i : viewPoints.length - 1;
-  })();
-  const [idx, setIdx] = useState(initialIdx);
-  const [wasAtEnd, setWasAtEnd] = useState(initialIdx === viewPoints.length - 1);
+  const [points, setPoints] = useState<TimelinePoint[] | null>(null);
+  const [idx, setIdx] = useState(0);
   const [objects, setObjects] = useState<ObjectEntry[] | null>(null);
   const [selectedSha, setSelectedSha] = useState<string | null>(remembered?.selectedSha ?? null);
   const [highlightOrphans, setHighlightOrphans] = useState(remembered?.highlightOrphans ?? false);
-
-  // New events grow the timeline; stay pinned to "now" if that's where
-  // the user was, otherwise hold their place.
-  useEffect(() => {
-    if (wasAtEnd || idx >= viewPoints.length) setIdx(viewPoints.length - 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewPoints.length]);
-
-  const select = (i: number) => {
-    setIdx(i);
-    setWasAtEnd(i === viewPoints.length - 1);
-  };
-
-  const vp = viewPoints[Math.min(idx, viewPoints.length - 1)];
-
-  useEffect(() => {
-    inspectorMemory.set(memKey, { at: vp.at, selectedSha, highlightOrphans });
-  }, [memKey, vp.at, selectedSha, highlightOrphans]);
+  // Pinned to "now": new events keep the view live; scrubbed back, it holds.
+  const pinnedLive = useRef(remembered ? remembered.at === null : true);
+  const initialized = useRef(false);
 
   useEffect(() => {
     let live = true;
+    getTimeline(token, scenarioId)
+      .then((pts) => {
+        if (!live) return;
+        setPoints(pts);
+        setIdx((prev) => {
+          if (!initialized.current) {
+            initialized.current = true;
+            if (remembered && remembered.at !== null) {
+              const i = pts.findIndex((p) => p.at === remembered.at);
+              if (i >= 0) {
+                pinnedLive.current = false;
+                return i;
+              }
+            }
+            pinnedLive.current = true;
+            return pts.length - 1;
+          }
+          return pinnedLive.current ? pts.length - 1 : Math.min(prev, pts.length - 1);
+        });
+      })
+      .catch(() => live && setPoints([]));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, scenarioId, eventCount]);
+
+  const vp = points?.[Math.min(idx, (points?.length ?? 1) - 1)];
+
+  const select = (i: number) => {
+    setIdx(i);
+    pinnedLive.current = points !== null && i === points.length - 1;
+  };
+
+  useEffect(() => {
+    if (vp) inspectorMemory.set(memKey, { at: vp.at, selectedSha, highlightOrphans });
+  }, [memKey, vp, selectedSha, highlightOrphans]);
+
+  useEffect(() => {
+    if (!vp) return;
+    let live = true;
     setObjects(null);
-    getObjects(token, scenarioId, { refs: vp.refs, extra: vp.ghosts })
+    getObjects(token, scenarioId, vp.live ? undefined : vp.idx)
       .then((o) => {
         if (!live) return;
         setObjects(o);
@@ -99,7 +101,8 @@ export default function Inspector({
     return () => {
       live = false;
     };
-  }, [token, scenarioId, vp]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, scenarioId, vp?.at, vp?.idx, points === null]);
 
   // Chapter positions: proportional to real elapsed time, like a video
   // scrubber — two pushes a second apart sit together; the quiet half
@@ -107,13 +110,14 @@ export default function Inspector({
   // frozen a fixed beat after the latest event rather than at wall-clock
   // now, or an idle hour would crush the whole story against the left edge.
   const positions = useMemo(() => {
-    const real = viewPoints.filter((p) => p.at).map((p) => Date.parse(p.at as string));
+    const pts = points ?? [];
+    const real = pts.filter((p) => p.at).map((p) => Date.parse(p.at as string));
     const liveT = real.length > 0 ? real[real.length - 1] + 30_000 : Date.now();
-    const times = viewPoints.map((p) => (p.at ? Date.parse(p.at) : liveT));
-    const t0 = times[0];
-    const span = Math.max(1, times[times.length - 1] - t0);
+    const times = pts.map((p) => (p.at ? Date.parse(p.at) : liveT));
+    const t0 = times[0] ?? 0;
+    const span = Math.max(1, (times[times.length - 1] ?? 0) - t0);
     return times.map((t) => ((t - t0) / span) * 100);
-  }, [viewPoints]);
+  }, [points]);
 
   // Same-second events land on the same spot; stagger a cluster upward so
   // every marker stays visible and clickable. Temporal truth, no occlusion.
@@ -202,41 +206,47 @@ export default function Inspector({
         </div>
 
         <footer className="scrubber">
-          <div className="scrub-buttons">
-            <button onClick={() => select(Math.max(0, idx - 1))} disabled={idx === 0} aria-label="previous event">
-              ◀
-            </button>
-            <button
-              onClick={() => select(Math.min(viewPoints.length - 1, idx + 1))}
-              disabled={idx === viewPoints.length - 1}
-              aria-label="next event"
-            >
-              ▶
-            </button>
-          </div>
-          <div className="scrub-track">
-            <div className="scrub-rail" />
-            <div className="scrub-fill" style={{ width: `${positions[idx] ?? 100}%` }} />
-            {viewPoints.map((p, i) => (
-              <button
-                key={`${p.at ?? "now"}-${i}`}
-                className={`scrub-marker${i === idx ? " selected" : ""}${p.at ? "" : " live"}`}
-                style={{ left: `${positions[i]}%`, top: `calc(50% - ${stackLevels[i] * 15}px)` }}
-                onClick={() => select(i)}
-                title={`${p.label}${p.at ? ` · ${new Date(p.at).toLocaleTimeString()}` : ""}`}
-              >
-                {p.icon}
-              </button>
-            ))}
-          </div>
-          <div className="scrub-info">
-            <strong>
-              {vp.icon} {vp.label}
-            </strong>
-            <span className="muted">
-              {vp.at ? new Date(vp.at).toLocaleTimeString() : "live"}
-            </span>
-          </div>
+          {points === null || !vp ? (
+            <p className="muted">reading the timeline…</p>
+          ) : (
+            <>
+              <div className="scrub-buttons">
+                <button onClick={() => select(Math.max(0, idx - 1))} disabled={idx === 0} aria-label="previous event">
+                  ◀
+                </button>
+                <button
+                  onClick={() => select(Math.min(points.length - 1, idx + 1))}
+                  disabled={idx === points.length - 1}
+                  aria-label="next event"
+                >
+                  ▶
+                </button>
+              </div>
+              <div className="scrub-track">
+                <div className="scrub-rail" />
+                <div className="scrub-fill" style={{ width: `${positions[idx] ?? 100}%` }} />
+                {points.map((p, i) => (
+                  <button
+                    key={`${p.at ?? "now"}-${i}`}
+                    className={`scrub-marker${i === idx ? " selected" : ""}${p.at ? "" : " live"}`}
+                    style={{ left: `${positions[i]}%`, top: `calc(50% - ${stackLevels[i] * 15}px)` }}
+                    onClick={() => select(i)}
+                    title={`${p.label}${p.at ? ` · ${new Date(p.at).toLocaleTimeString()}` : ""}`}
+                  >
+                    {p.icon}
+                  </button>
+                ))}
+              </div>
+              <div className="scrub-info">
+                <strong>
+                  {vp.icon} {vp.label}
+                </strong>
+                <span className="muted">
+                  {vp.at ? new Date(vp.at).toLocaleTimeString() : "live"}
+                </span>
+              </div>
+            </>
+          )}
         </footer>
       </div>
     </div>

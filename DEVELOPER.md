@@ -105,11 +105,14 @@ Useful endpoints for poking (also how the UI works — watch the Network tab):
 ```sh
 curl -s -X POST localhost:8070/api/session                      # new session
 curl -s localhost:8070/api/session/<token>                      # state + event log
-curl -s localhost:8070/api/session/<token>/graph/<scenario-id>  # the DAG the UI draws
-#   ?refs=main=<sha>   render as of a past ref snapshot (events carry them)
-#   ?extra=<sha>,...   include unreachable tips too, marked "ghost"
-curl -s localhost:8070/api/session/<token>/object/<scenario-id>/<sha>  # x-ray any object
 curl -s -N localhost:8070/api/session/<token>/events            # live SSE stream
+# scenario-scoped resources, all under /api/session/<token>/scenario/<id>:
+curl -s localhost:8070/api/session/<t>/scenario/<id>/graph      # the DAG the UI draws
+curl -s localhost:8070/api/session/<t>/scenario/<id>/timeline   # the scrubber's points
+curl -s "localhost:8070/api/session/<t>/scenario/<id>/graph?at=2"   # as of point idx 2
+curl -s localhost:8070/api/session/<t>/scenario/<id>/objects    # the object database
+curl -s localhost:8070/api/session/<t>/scenario/<id>/objects/<sha>  # one object, cat-file style
+curl -s -X POST localhost:8070/api/session/<t>/scenario/<id>/reset  # restore the origin
 ```
 
 One global git note: if your git config signs commits (`commit.gpgsign true`)
@@ -136,11 +139,14 @@ Code layout:
 
 | namespace | role |
 |-----------|------|
-| `l2git.core` | Ring routing, session API, static files, SSE, Jetty bootstrap |
+| `l2git.core` | the route table, API handlers, Jetty bootstrap |
+| `l2git.web` | HTTP plumbing: JSON/query helpers, the SSE stream, static files |
 | `l2git.git-http` | smart-HTTP endpoints (`info/refs`, upload-pack, receive-pack), puppeteering triggers, evaluation hook |
 | `l2git.repo-gen` | in-memory repo construction (JGit `ObjectInserter`, `InMemoryRepository`) |
 | `l2git.scenarios` | the scenario DSL: loads EDN from `resources/scenarios/`, compiles to runtime hooks, step engine |
 | `l2git.session` | token-keyed session state, step progress, event log, lazy repo materialization |
+| `l2git.timeline` | the scrubber's points and `?at=` state resolution, derived from the event log (the event schema is documented here) |
+| `l2git.graph` | DAG serialization, object x-ray, object-database closures |
 
 There's no hot-reload wired up for server code or scenario EDN — restart
 `clojure -M:run` after changes (it's a few seconds), or run a REPL

@@ -1,49 +1,34 @@
 (ns l2git.core
-  "HTTP routing and server bootstrap.
+  "Routing and server bootstrap.
 
   Git URLs carry the session token and scenario id:
       git clone http://localhost:8070/r/<token>/<scenario>.git
-  API:
-      POST /api/session                            -> new session payload
-      GET  /api/session/<token>                    -> session + scenario list
-      GET  /api/session/<token>/graph/<scenario>   -> commit DAG for the viz
-           ?refs=main=<sha>,...   render as of a past ref snapshot
-           ?extra=<sha>,...       include these tips too, marked :ghost
-      GET  /api/session/<token>/object/<scenario>/<sha> -> x-ray one object
-      GET  /api/session/<token>/objects/<scenario> -> every object at a state
-           (same ?refs=/?extra= as graph; sorted by sha)
-      GET  /api/session/<token>/events             -> SSE stream of live events
+  API — session resources:
+      POST /api/session                  -> new session payload
+      GET  /api/session/<t>              -> session + scenario list
+      GET  /api/session/<t>/events       -> SSE stream of live events
+  API — scenario-scoped resources (all under /api/session/<t>/scenario/<id>):
+      GET  .../graph           ?at=<n>   -> commit DAG (live, or as of a
+                                            timeline point; ghosts included)
+      GET  .../timeline                  -> the scrubber's points; each real
+                                            point's :idx is what ?at= names
+      GET  .../objects         ?at=<n>   -> every object in the database at
+                                            that state, sorted by sha
+      GET  .../objects/<sha>             -> one object, cat-file style
+      POST .../reset                     -> restore the scenario's origin
   Everything else is served from web/dist (the built frontend)."
-  (:require [clojure.data.json :as json]
-            [clojure.java.io :as io]
-            [clojure.string :as string]
-            [l2git.git-http :as git-http]
+  (:require [l2git.git-http :as git-http]
             [l2git.graph :as graph]
             [l2git.scenarios :as scenarios]
             [l2git.session :as session]
-            [ring.adapter.jetty :as jetty]
-            [ring.core.protocols :as ring-proto]
-            [ring.util.mime-type :as mime])
-  (:import [java.util.concurrent BlockingQueue TimeUnit]
-           [java.io OutputStream])
+            [l2git.timeline :as timeline]
+            [l2git.web :as web]
+            [ring.adapter.jetty :as jetty])
   (:gen-class))
 
 (def port 8070)
 
-(defn- json-response
-  ([body] (json-response 200 body))
-  ([status body]
-   {:status  status
-    :headers {"Content-Type" "application/json"}
-    :body    (json/write-str body)}))
-
-;; ---------------------------------------------------------------- sessions
-
-(defn- request-host
-  "The host:port the client used to reach us — clone URLs must be built from
-  it, or containers/port-mappings/LAN access would hand out broken commands."
-  [req]
-  (get-in req [:headers "host"] (str "localhost:" port)))
+;; ---------------------------------------------------------------- payloads
 
 (defn- clone-url [host token scenario-id]
   (str "http://" host "/r/" token "/" scenario-id ".git"))
@@ -79,66 +64,94 @@
                                           steps))}))
                  scenarios/catalog))))
 
-(defn- query-params
-  "Tiny query-string parser: 'a=1&b=2' -> {\"a\" \"1\", \"b\" \"2\"}.
-  Values are split on the first '=' only and URL-decoded afterwards —
-  browsers (URLSearchParams) percent-encode the ','/'=' inside snapshot
-  values, curl doesn't; both must parse the same."
-  [req]
-  (let [decode #(java.net.URLDecoder/decode ^String % "UTF-8")]
-    (into {}
-          (keep (fn [pair]
-                  (let [i (string/index-of pair "=")]
-                    (when (and i (pos? i))
-                      [(decode (subs pair 0 i)) (decode (subs pair (inc i)))]))))
-          (string/split (or (:query-string req) "") #"&"))))
+(defn- host [req] (web/request-host req (str "localhost:" port)))
 
-(defn- graph-opts
-  "Scrubber params for the graph endpoint: refs=main=<sha>,feat=<sha> is a
-  past ref snapshot to render instead of the live refs; extra=<sha>,<sha>
-  are tips to include as ghosts (e.g. a rejected push's commit)."
-  [req]
-  (let [qp        (query-params req)
-        parse-ref (fn [s] (let [i (string/index-of s "=")]
-                            (when (and i (pos? i))
-                              [(subs s 0 i) (subs s (inc i))])))]
-    {:refs-override (some->> (get qp "refs")
-                             (#(string/split % #","))
-                             (keep parse-ref)
-                             seq
-                             (into {}))
-     :extra-tips    (some-> (get qp "extra")
-                            (string/split #","))}))
+;; ---------------------------------------------------------------- handlers
 
-;; --------------------------------------------------------------------- SSE
+(defn- with-scenario
+  "404s for unknown token/scenario; otherwise calls (f entry events)."
+  [token scenario-id f]
+  (cond
+    (nil? (session/lookup token))
+    (web/json-response 404 {:error "unknown session"})
 
-(defn- sse-events
-  "Server-sent events: everything record-event! broadcasts for this token,
-  JSON per event. A comment ping every 15s keeps proxies and EventSource
-  honest; a dead client surfaces as an IOException on write."
-  [token]
-  (let [^BlockingQueue q (session/add-listener! token)]
-    {:status  200
-     :headers {"Content-Type"      "text/event-stream"
-               "Cache-Control"     "no-cache"
-               "X-Accel-Buffering" "no"}
-     :body
-     (reify ring-proto/StreamableResponseBody
-       (write-body-to-stream [_ _ os]
-         (let [w (io/writer os)]
-           (try
-             (.write w "retry: 2000\n\n")
-             (.flush w)
-             (loop []
-               (if-let [ev (.poll q 15 TimeUnit/SECONDS)]
-                 (do (.write w (str "data: " (json/write-str ev) "\n\n"))
-                     (.flush w))
-                 (do (.write w ": ping\n\n")
-                     (.flush w)))
-               (recur))
-             (catch Exception _)                 ; client went away
-             (finally
-               (session/remove-listener! token q))))))}))
+    (nil? (scenarios/by-id scenario-id))
+    (web/json-response 404 {:error "unknown scenario"})
+
+    :else
+    (f (session/repo-for! token scenario-id)
+       (:events (session/lookup token)))))
+
+(defn- state-opts
+  "Which moment the request asks about: ?at=<idx> names a timeline point;
+  absent means live (with every accumulated ghost candidate included)."
+  [req scenario-id events]
+  (timeline/state-at events scenario-id
+                     (some-> (get (web/query-params req) "at") parse-long)))
+
+(defn- h-create-session [req _]
+  (web/json-response (session-payload (:token (session/create!)) (host req))))
+
+(defn- h-session [req [token]]
+  (if-let [payload (session-payload token (host req))]
+    (web/json-response payload)
+    (web/json-response 404 {:error "unknown session"})))
+
+(defn- h-events [_ [token]]
+  (if (session/lookup token)
+    (web/sse-events token)
+    (web/json-response 404 {:error "unknown session"})))
+
+(defn- h-graph [req [token scenario-id]]
+  (with-scenario token scenario-id
+    (fn [{:keys [repo known]} events]
+      (web/json-response
+       (graph/repo-graph repo known (state-opts req scenario-id events))))))
+
+(defn- h-timeline [_ [token scenario-id]]
+  (with-scenario token scenario-id
+    (fn [_ events]
+      (web/json-response {:points (timeline/client-points events scenario-id)}))))
+
+(defn- h-objects [req [token scenario-id]]
+  (with-scenario token scenario-id
+    (fn [{:keys [repo]} events]
+      (web/json-response
+       {:objects (graph/objects-at repo (state-opts req scenario-id events))}))))
+
+(defn- h-object [_ [token scenario-id sha]]
+  (with-scenario token scenario-id
+    (fn [{:keys [repo]} _]
+      (if-let [obj (graph/object-info repo sha)]
+        (web/json-response obj)
+        (web/json-response 404 {:error "no such object in this repository"})))))
+
+(defn- h-reset [req [token scenario-id]]
+  (with-scenario token scenario-id
+    (fn [_ _]
+      (session/reset-scenario! token scenario-id)
+      (web/json-response (session-payload token (host req))))))
+
+;; ----------------------------------------------------------------- routing
+
+(def ^:private scenario-path "/api/session/([a-z0-9]+)/scenario/([a-z0-9-]+)")
+
+(def ^:private api-routes
+  [[:post #"^/api/session$"                                  h-create-session]
+   [:get  #"^/api/session/([a-z0-9]+)$"                      h-session]
+   [:get  #"^/api/session/([a-z0-9]+)/events$"               h-events]
+   [:get  (re-pattern (str "^" scenario-path "/graph$"))     h-graph]
+   [:get  (re-pattern (str "^" scenario-path "/timeline$"))  h-timeline]
+   [:get  (re-pattern (str "^" scenario-path "/objects$"))   h-objects]
+   [:get  (re-pattern (str "^" scenario-path "/objects/([0-9a-f]{40})$")) h-object]
+   [:post (re-pattern (str "^" scenario-path "/reset$"))     h-reset]])
+
+(defn- api [req]
+  (some (fn [[method pattern handler]]
+          (when (= method (:request-method req))
+            (when-let [m (re-matches pattern (:uri req))]
+              (handler req (rest m)))))
+        api-routes))
 
 ;; --------------------------------------------------------------------- git
 
@@ -163,92 +176,18 @@
 
       :else
       {:status 404 :body "not found"})
-    (json-response 404 {:error "unknown session token or scenario"})))
-
-;; ------------------------------------------------------------ static files
-
-(def ^:private web-dist "web/dist")
-
-(defn- static-file [^String uri]
-  (let [path (if (= uri "/") "index.html" (subs uri 1))
-        f    (io/file web-dist path)]
-    (when (and (.isFile f)
-               ;; keep path traversal out
-               (-> f .getCanonicalPath
-                   (.startsWith (.getCanonicalPath (io/file web-dist)))))
-      {:status  200
-       :headers {"Content-Type" (or (mime/ext-mime-type path) "application/octet-stream")}
-       :body    f})))
-
-;; ----------------------------------------------------------------- routing
+    (web/json-response 404 {:error "unknown session token or scenario"})))
 
 (defn app [req]
-  (let [uri    (:uri req)
-        method (:request-method req)]
-    (cond
-      (re-matches git-url-re uri)
-      (let [[_ token scenario-id tail] (re-matches git-url-re uri)]
+  (or (when-let [[_ token scenario-id tail] (re-matches git-url-re (:uri req))]
         (handle-git req token scenario-id tail))
+      (api req)
+      (when (= :get (:request-method req))
+        (or (web/static-file (:uri req))
+            (web/frontend-missing-hint (:uri req))))
+      {:status 404 :body "not found"}))
 
-      (and (= :post method) (= uri "/api/session"))
-      (json-response (session-payload (:token (session/create!)) (request-host req)))
-
-      (and (= :post method)
-           (re-matches #"^/api/session/([a-z0-9]+)/reset/([a-z0-9-]+)$" uri))
-      (let [[_ token scenario-id]
-            (re-matches #"^/api/session/([a-z0-9]+)/reset/([a-z0-9-]+)$" uri)]
-        (cond
-          (nil? (session/lookup token))        (json-response 404 {:error "unknown session"})
-          (nil? (scenarios/by-id scenario-id)) (json-response 404 {:error "unknown scenario"})
-          :else (do (session/reset-scenario! token scenario-id)
-                    (json-response (session-payload token (request-host req))))))
-
-      (and (= :get method)
-           (re-matches #"^/api/session/([a-z0-9]+)/object/([a-z0-9-]+)/([0-9a-f]{40})$" uri))
-      (let [[_ token scenario-id sha]
-            (re-matches #"^/api/session/([a-z0-9]+)/object/([a-z0-9-]+)/([0-9a-f]{40})$" uri)]
-        (if-let [{:keys [repo]} (session/repo-for! token scenario-id)]
-          (if-let [obj (graph/object-info repo sha)]
-            (json-response obj)
-            (json-response 404 {:error "no such object in this repository"}))
-          (json-response 404 {:error "unknown session token or scenario"})))
-
-      (= :get method)
-      (if-let [[_ token sub scenario-id]
-               (re-matches #"^/api/session/([a-z0-9]+)(?:/(events|graph|objects)(?:/([a-z0-9-]+))?)?$" uri)]
-        (cond
-          (nil? (session/lookup token))
-          (json-response 404 {:error "unknown session"})
-
-          (nil? sub)
-          (json-response (session-payload token (request-host req)))
-
-          (= sub "events")
-          (sse-events token)
-
-          (= sub "graph")
-          (if-let [{:keys [repo known]} (session/repo-for! token scenario-id)]
-            (json-response (graph/repo-graph repo known (graph-opts req)))
-            (json-response 404 {:error "unknown scenario"}))
-
-          (= sub "objects")
-          (if-let [{:keys [repo]} (session/repo-for! token scenario-id)]
-            (json-response {:objects (graph/objects-at repo (graph-opts req))})
-            (json-response 404 {:error "unknown scenario"}))
-
-          :else
-          (json-response 404 {:error "not found"}))
-        (or (static-file uri)
-            (if (= uri "/")
-              {:status  200
-               :headers {"Content-Type" "text/plain"}
-               :body    (str "l2git is running, but the frontend isn't built yet.\n"
-                             "Run: cd web && npm install && npm run build\n"
-                             "then reload. (API is live: POST /api/session)\n")}
-              {:status 404 :body "not found"})))
-
-      :else
-      {:status 404 :body "not found"})))
+;; --------------------------------------------------------------- bootstrap
 
 (defn start!
   "Start the server; returns the Jetty instance (useful at the REPL)."
