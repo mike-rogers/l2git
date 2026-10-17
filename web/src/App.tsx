@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createSession, eventStream, getGraph, getSession, resetScenario } from "./api";
 import Graph from "./Graph";
-// Timeline's scrubber and the XRay inspector are deliberately not rendered
-// yet — they're getting their own design pass — but buildTimeline/allGhosts
-// still feed the live graph its ghost (unreachable-commit) candidates.
+import Inspector from "./Inspector";
 import { allGhosts, buildTimeline } from "./Timeline";
 import type { Graph as GraphData, Level, Scenario, Session, SessionEvent } from "./types";
 
@@ -242,6 +240,8 @@ export default function App() {
   const [bottomOpen, setBottomOpen] = useState(true);
   // Bottom panel height: fixed (~3.5 graph rows) by default, drag to taste.
   const [bottomH, setBottomH] = useState(196);
+  // The under-the-hood popover: scrubber + object database.
+  const [inspecting, setInspecting] = useState(false);
   const esRef = useRef<EventSource | null>(null);
 
   const startBottomResize = useCallback(
@@ -429,16 +429,27 @@ export default function App() {
         )}
         <div className="panel-head">
           <span>
-            the remote, live <span className="pulse" title="updates as you push" />
+            <code>origin</code>&rsquo;s commit graph{" "}
+            <span className="pulse" title="updates as you push" />
           </span>
-          <button
-            className="panel-toggle"
-            onClick={() => setBottomOpen(!bottomOpen)}
+          <span className="panel-head-actions">
+            <button
+              className="panel-toggle dive"
+              onClick={() => setInspecting(true)}
+              title="Under the hood: the object database, over time"
+              aria-label="Open the object database inspector"
+            >
+              ⌬
+            </button>
+            <button
+              className="panel-toggle"
+              onClick={() => setBottomOpen(!bottomOpen)}
             title={bottomOpen ? "Collapse remote panel" : "Open remote panel"}
-            aria-label={bottomOpen ? "Collapse remote panel" : "Open remote panel"}
-          >
-            {bottomOpen ? "⌄" : "⌃"}
-          </button>
+              aria-label={bottomOpen ? "Collapse remote panel" : "Open remote panel"}
+            >
+              {bottomOpen ? "⌄" : "⌃"}
+            </button>
+          </span>
         </div>
         {bottomOpen && (
           <div className="panel-body">
@@ -446,6 +457,14 @@ export default function App() {
           </div>
         )}
       </section>
+      {inspecting && (
+        <Inspector
+          token={session.token}
+          scenarioId={current.id}
+          events={session.events}
+          onClose={() => setInspecting(false)}
+        />
+      )}
     </div>
   );
 }

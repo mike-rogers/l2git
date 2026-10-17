@@ -10,6 +10,8 @@
            ?refs=main=<sha>,...   render as of a past ref snapshot
            ?extra=<sha>,...       include these tips too, marked :ghost
       GET  /api/session/<token>/object/<scenario>/<sha> -> x-ray one object
+      GET  /api/session/<token>/objects/<scenario> -> every object at a state
+           (same ?refs=/?extra= as graph; sorted by sha)
       GET  /api/session/<token>/events             -> SSE stream of live events
   Everything else is served from web/dist (the built frontend)."
   (:require [clojure.data.json :as json]
@@ -213,7 +215,7 @@
 
       (= :get method)
       (if-let [[_ token sub scenario-id]
-               (re-matches #"^/api/session/([a-z0-9]+)(?:/(events|graph)(?:/([a-z0-9-]+))?)?$" uri)]
+               (re-matches #"^/api/session/([a-z0-9]+)(?:/(events|graph|objects)(?:/([a-z0-9-]+))?)?$" uri)]
         (cond
           (nil? (session/lookup token))
           (json-response 404 {:error "unknown session"})
@@ -227,6 +229,11 @@
           (= sub "graph")
           (if-let [{:keys [repo known]} (session/repo-for! token scenario-id)]
             (json-response (graph/repo-graph repo known (graph-opts req)))
+            (json-response 404 {:error "unknown scenario"}))
+
+          (= sub "objects")
+          (if-let [{:keys [repo]} (session/repo-for! token scenario-id)]
+            (json-response {:objects (graph/objects-at repo (graph-opts req))})
             (json-response 404 {:error "unknown scenario"}))
 
           :else

@@ -20,7 +20,7 @@ export interface GraphOpts {
   extra?: string[];
 }
 
-export async function getGraph(token: string, scenario: string, opts?: GraphOpts): Promise<Graph> {
+function stateQs(opts?: GraphOpts): string {
   const params = new URLSearchParams();
   if (opts?.refs && Object.keys(opts.refs).length > 0)
     params.set(
@@ -31,9 +31,28 @@ export async function getGraph(token: string, scenario: string, opts?: GraphOpts
     );
   if (opts?.extra && opts.extra.length > 0) params.set("extra", opts.extra.join(","));
   const qs = params.toString();
-  const res = await fetch(`/api/session/${token}/graph/${scenario}${qs ? `?${qs}` : ""}`);
+  return qs ? `?${qs}` : "";
+}
+
+export async function getGraph(token: string, scenario: string, opts?: GraphOpts): Promise<Graph> {
+  const res = await fetch(`/api/session/${token}/graph/${scenario}${stateQs(opts)}`);
   if (!res.ok) throw new Error(`getGraph: ${res.status}`);
   return res.json();
+}
+
+export interface ObjectEntry {
+  sha: string;
+  otype: "commit" | "tree" | "blob";
+}
+
+export async function getObjects(
+  token: string,
+  scenario: string,
+  opts?: GraphOpts,
+): Promise<ObjectEntry[]> {
+  const res = await fetch(`/api/session/${token}/objects/${scenario}${stateQs(opts)}`);
+  if (!res.ok) throw new Error(`getObjects: ${res.status}`);
+  return (await res.json()).objects;
 }
 
 export async function getObject(token: string, scenario: string, sha: string): Promise<GitObject | null> {

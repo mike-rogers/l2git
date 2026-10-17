@@ -14,7 +14,7 @@
 
   object-info is the x-ray itself: a cat-file-like view of any one object."
   (:import [org.eclipse.jgit.lib Repository Ref ObjectId Constants PersonIdent]
-           [org.eclipse.jgit.revwalk RevWalk RevSort]
+           [org.eclipse.jgit.revwalk RevWalk RevSort RevCommit]
            [org.eclipse.jgit.treewalk TreeWalk]))
 
 (defn- mark-starts
@@ -33,15 +33,19 @@
     (mark-starts rw tips)
     (into #{} (map #(.name ^Object %)) (iterator-seq (.iterator rw)))))
 
+(defn- live-ref-map
+  "branch -> tip hash for every refs/heads/* in the repo."
+  [^Repository repo]
+  (into {}
+        (map (fn [^Ref r]
+               [(Repository/shortenRefName (.getName r))
+                (.name (.getObjectId r))]))
+        (.getRefsByPrefix (.getRefDatabase repo) "refs/heads/")))
+
 (defn repo-graph
   ([repo known] (repo-graph repo known nil))
   ([^Repository repo known {:keys [refs-override extra-tips]}]
-   (let [ref-map      (or refs-override
-                          (into {}
-                                (map (fn [^Ref r]
-                                       [(Repository/shortenRefName (.getName r))
-                                        (.name (.getObjectId r))]))
-                                (.getRefsByPrefix (.getRefDatabase repo) "refs/heads/")))
+   (let [ref-map      (or refs-override (live-ref-map repo))
          head         (some-> (.exactRef repo "HEAD") .getTarget .getName
                               Repository/shortenRefName)
          known-hashes (set (vals known))
@@ -64,6 +68,40 @@
                        (iterator-seq (.iterator rw)))
         :refs    (mapv (fn [[n target]] {:name n :target target}) ref-map)
         :head    head}))))
+
+(defn- tree-objects
+  "Fold the tree `tid` and everything beneath it into acc (sha -> type)."
+  [^Repository repo acc ^ObjectId tid]
+  (if (contains? acc (.name tid))
+    acc
+    (with-open [tw (doto (TreeWalk. repo) (.setRecursive false))]
+      (.addTree tw tid)
+      (loop [acc (assoc acc (.name tid) "tree")]
+        (if (.next tw)
+          (let [oid (.getObjectId tw 0)]
+            (recur (if (.isSubtree tw)
+                     (tree-objects repo acc oid)
+                     (assoc acc (.name oid) "blob"))))
+          acc)))))
+
+(defn objects-at
+  "Everything in the object database reachable from the given state — the
+  live refs or a snapshot override, plus extra tips (a rejected push's
+  objects are *in the store* from the moment they were transmitted, which
+  is the lesson). Returns [{:sha :otype}] sorted by sha, so the learner
+  sees the database the way git stores it: a flat, content-addressed
+  key space, not a hierarchy."
+  [^Repository repo {:keys [refs-override extra-tips]}]
+  (let [ref-map (or refs-override (live-ref-map repo))
+        tips    (into (set (vals ref-map)) extra-tips)]
+    (with-open [rw (RevWalk. repo)]
+      (mark-starts rw tips)
+      (let [commits (vec (iterator-seq (.iterator rw)))
+            acc     (reduce (fn [acc ^RevCommit c] (assoc acc (.name c) "commit"))
+                            {} commits)
+            acc     (reduce (fn [acc ^RevCommit c] (tree-objects repo acc (.getTree c)))
+                            acc commits)]
+        (mapv (fn [[sha otype]] {:sha sha :otype otype}) (sort-by key acc))))))
 
 (defn- ident-info [^PersonIdent p]
   {:name  (.getName p)
