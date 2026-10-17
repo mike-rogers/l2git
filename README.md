@@ -65,7 +65,9 @@ seen the floor and it held.
 More is planned — tagging, reflog rescue, force-push regret, bisect,
 `rebase --onto`, fork/upstream workflows — tracked in the
 [issues](../../issues) and the curriculum checklist in
-[#6](../../issues/6).
+[#6](../../issues/6). How the tool *teaches* — the sequencing philosophy,
+the planned timeline/x-ray/debrief/codex instruments — lives in
+[PEDAGOGY.md](PEDAGOGY.md).
 
 ## Status
 
