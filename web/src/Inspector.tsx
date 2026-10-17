@@ -24,6 +24,14 @@ const OTYPE_ICON: Record<ObjectEntry["otype"], string> = {
   blob: "≡",
 };
 
+/** Where the learner left the inspector, per session+scenario, so closing
+ * and reopening the popover doesn't lose their place. Deliberately a
+ * module-level map: cheap, survives unmount, gone on reload. */
+const inspectorMemory = new Map<
+  string,
+  { at: string | null; selectedSha: string | null; highlightOrphans: boolean }
+>();
+
 export default function Inspector({
   token,
   scenarioId,
@@ -43,12 +51,21 @@ export default function Inspector({
     ];
   }, [events, scenarioId]);
 
-  // Default to "now", the last point.
-  const [idx, setIdx] = useState(viewPoints.length - 1);
-  const [wasAtEnd, setWasAtEnd] = useState(true);
+  const memKey = `${token}:${scenarioId}`;
+  const remembered = inspectorMemory.get(memKey);
+
+  // Default to "now" (the last point), or wherever this popover was last
+  // closed for this scenario.
+  const initialIdx = (() => {
+    if (!remembered || remembered.at === null) return viewPoints.length - 1;
+    const i = viewPoints.findIndex((p) => p.at === remembered.at);
+    return i >= 0 ? i : viewPoints.length - 1;
+  })();
+  const [idx, setIdx] = useState(initialIdx);
+  const [wasAtEnd, setWasAtEnd] = useState(initialIdx === viewPoints.length - 1);
   const [objects, setObjects] = useState<ObjectEntry[] | null>(null);
-  const [selectedSha, setSelectedSha] = useState<string | null>(null);
-  const [highlightOrphans, setHighlightOrphans] = useState(false);
+  const [selectedSha, setSelectedSha] = useState<string | null>(remembered?.selectedSha ?? null);
+  const [highlightOrphans, setHighlightOrphans] = useState(remembered?.highlightOrphans ?? false);
 
   // New events grow the timeline; stay pinned to "now" if that's where
   // the user was, otherwise hold their place.
@@ -63,6 +80,10 @@ export default function Inspector({
   };
 
   const vp = viewPoints[Math.min(idx, viewPoints.length - 1)];
+
+  useEffect(() => {
+    inspectorMemory.set(memKey, { at: vp.at, selectedSha, highlightOrphans });
+  }, [memKey, vp.at, selectedSha, highlightOrphans]);
 
   useEffect(() => {
     let live = true;
@@ -93,6 +114,20 @@ export default function Inspector({
     const span = Math.max(1, times[times.length - 1] - t0);
     return times.map((t) => ((t - t0) / span) * 100);
   }, [viewPoints]);
+
+  // Same-second events land on the same spot; stagger a cluster upward so
+  // every marker stays visible and clickable. Temporal truth, no occlusion.
+  const stackLevels = useMemo(() => {
+    const levels: number[] = [];
+    let prev = -Infinity;
+    let level = 0;
+    positions.forEach((p, i) => {
+      level = p - prev < 2.2 ? level + 1 : 0;
+      levels[i] = level;
+      prev = p;
+    });
+    return levels;
+  }, [positions]);
 
   return (
     <div className="inspector-overlay" onClick={onClose}>
@@ -186,7 +221,7 @@ export default function Inspector({
               <button
                 key={`${p.at ?? "now"}-${i}`}
                 className={`scrub-marker${i === idx ? " selected" : ""}${p.at ? "" : " live"}`}
-                style={{ left: `${positions[i]}%` }}
+                style={{ left: `${positions[i]}%`, top: `calc(50% - ${stackLevels[i] * 15}px)` }}
                 onClick={() => select(i)}
                 title={`${p.label}${p.at ? ` · ${new Date(p.at).toLocaleTimeString()}` : ""}`}
               >

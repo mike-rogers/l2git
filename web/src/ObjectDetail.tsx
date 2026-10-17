@@ -40,6 +40,28 @@ interface Edge {
   to: string;
 }
 
+const BLOB_PREVIEW = 400;
+
+function BlobContent({ size, binary, content }: { size: number; binary: boolean; content: string | null }) {
+  const [full, setFull] = useState(false);
+  if (binary) return <p className="muted">(binary)</p>;
+  const text = content ?? "";
+  const truncated = !full && text.length > BLOB_PREVIEW;
+  return (
+    <>
+      <pre className="onode-blob">
+        {truncated ? text.slice(0, BLOB_PREVIEW) : text}
+        {truncated ? "⋯" : ""}
+      </pre>
+      {text.length > BLOB_PREVIEW && (
+        <button className="blob-more" onClick={() => setFull(!full)}>
+          {full ? "show less" : `show all ${size} bytes`}
+        </button>
+      )}
+    </>
+  );
+}
+
 const FETCH_CAP = 48;
 
 export default function ObjectDetail({
@@ -230,14 +252,7 @@ export default function ObjectDetail({
       {obj.type === "blob" && (
         <>
           <div className="onode-meta">{obj.size} bytes</div>
-          {obj.binary ? (
-            <p className="muted">(binary)</p>
-          ) : (
-            <pre className="onode-blob">
-              {(obj.content ?? "").slice(0, 400)}
-              {(obj.content ?? "").length > 400 ? "⋯" : ""}
-            </pre>
-          )}
+          <BlobContent size={obj.size} binary={obj.binary} content={obj.content} />
         </>
       )}
     </div>

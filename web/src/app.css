@@ -408,6 +408,11 @@ html, body, #root { height: 100%; }
   overflow-wrap: anywhere;
 }
 .onode.stale { opacity: 0.52; filter: saturate(0.35); }
+.blob-more {
+  border: none; background: none; cursor: pointer; color: var(--accent);
+  font: inherit; font-size: 11.5px; padding: 4px 0 0;
+}
+.blob-more:hover { text-decoration: underline; }
 .onode-parent { display: flex; align-items: center; gap: 5px; }
 .expand-parent {
   border: none; background: none; cursor: pointer; color: var(--muted);
@@ -428,7 +433,7 @@ html, body, #root { height: 100%; }
 .scrub-buttons button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .scrub-buttons button:disabled { opacity: 0.35; cursor: default; }
 
-.scrub-track { flex: 1; position: relative; height: 34px; margin: 0 10px; }
+.scrub-track { flex: 1; position: relative; height: 50px; margin: 0 10px; }
 .scrub-rail {
   position: absolute; left: 0; right: 0; top: 50%; height: 4px;
   transform: translateY(-50%); border-radius: 2px;
