@@ -79,15 +79,17 @@
 
 (defn- query-params
   "Tiny query-string parser: 'a=1&b=2' -> {\"a\" \"1\", \"b\" \"2\"}.
-  Values are split on the first '=' only, so snapshot refs ('main=<sha>')
-  survive inside a value."
+  Values are split on the first '=' only and URL-decoded afterwards —
+  browsers (URLSearchParams) percent-encode the ','/'=' inside snapshot
+  values, curl doesn't; both must parse the same."
   [req]
-  (into {}
-        (keep (fn [pair]
-                (let [i (string/index-of pair "=")]
-                  (when (and i (pos? i))
-                    [(subs pair 0 i) (subs pair (inc i))]))))
-        (string/split (or (:query-string req) "") #"&")))
+  (let [decode #(java.net.URLDecoder/decode ^String % "UTF-8")]
+    (into {}
+          (keep (fn [pair]
+                  (let [i (string/index-of pair "=")]
+                    (when (and i (pos? i))
+                      [(decode (subs pair 0 i)) (decode (subs pair (inc i)))]))))
+          (string/split (or (:query-string req) "") #"&"))))
 
 (defn- graph-opts
   "Scrubber params for the graph endpoint: refs=main=<sha>,feat=<sha> is a
