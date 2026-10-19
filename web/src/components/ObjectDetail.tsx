@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { getObject } from "./api";
-import type { GitObject } from "./types";
+import { getObject } from "../api";
+import type { GitObject } from "../types";
 
 /** The "look how neat this is" view: the selected object's pointer graph.
  * A commit points at its tree; trees point at blobs and subtrees; blobs

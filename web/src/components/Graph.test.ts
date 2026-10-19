@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { layout } from "./Graph";
-import type { Commit } from "./types";
+import type { Commit } from "../types";
 
 /** Minimal commit; the layout only reads id and parents. */
 const c = (id: string, parents: string[]): Commit => ({

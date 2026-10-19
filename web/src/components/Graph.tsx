@@ -1,4 +1,4 @@
-import type { Commit, Graph as GraphData } from "./types";
+import type { Commit, Graph as GraphData } from "../types";
 
 const ROW_H = 44;
 const LANE_W = 26;

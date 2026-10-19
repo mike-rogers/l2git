@@ -1,4 +1,4 @@
-import type { GitObject, Graph, Session } from "./types";
+import type { GitObject, Graph, ObjectEntry, Session, TimelinePoint } from "./types";
 
 export async function createSession(): Promise<Session> {
   const res = await fetch("/api/session", { method: "POST" });
@@ -30,27 +30,10 @@ export async function getGraph(token: string, scenario: string, at?: number): Pr
   return res.json();
 }
 
-export interface TimelinePoint {
-  icon: string;
-  label: string;
-  note?: string;
-  at: string | null; // null only on the trailing live point
-  /** What ?at= refers to; absent on the live point. */
-  idx?: number;
-  live?: boolean;
-}
-
 export async function getTimeline(token: string, scenario: string): Promise<TimelinePoint[]> {
   const res = await fetch(scenarioUrl(token, scenario, "/timeline"));
   if (!res.ok) throw new Error(`getTimeline: ${res.status}`);
   return (await res.json()).points;
-}
-
-export interface ObjectEntry {
-  sha: string;
-  otype: "commit" | "tree" | "blob";
-  /** No branch reaches this object at the selected moment. */
-  orphan: boolean;
 }
 
 export async function getObjects(token: string, scenario: string, at?: number): Promise<ObjectEntry[]> {

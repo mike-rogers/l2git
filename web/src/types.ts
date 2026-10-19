@@ -63,6 +63,23 @@ export interface SessionEvent {
   commands?: PushCommand[];
 }
 
+export interface TimelinePoint {
+  icon: string;
+  label: string;
+  note?: string;
+  at: string | null; // null only on the trailing live point
+  /** What ?at= refers to; absent on the live point. */
+  idx?: number;
+  live?: boolean;
+}
+
+export interface ObjectEntry {
+  sha: string;
+  otype: "commit" | "tree" | "blob";
+  /** No branch reaches this object at the selected moment. */
+  orphan: boolean;
+}
+
 export type GitObject =
   | {
       type: "commit";
